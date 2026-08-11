@@ -68,8 +68,8 @@ class TrainerConfig:
             raise ValueError("warmup_ratio phải nằm trong khoảng [0, 1)")
         if self.wandb_mode not in {"online", "offline", "disabled"}:
             raise ValueError("wandb_mode phải là online, offline hoặc disabled")
-        if self.wandb_log_model not in {"false", "end", "checkpoint"}:
-            raise ValueError("wandb_log_model phải là false, end hoặc checkpoint")
+        if self.wandb_log_model not in {"false", "end"}:
+            raise ValueError("wandb_log_model chỉ được là false hoặc end")
         if self.wandb_watch not in {"false", "gradients", "all"}:
             raise ValueError("wandb_watch phải là false, gradients hoặc all")
 

@@ -83,6 +83,9 @@ require_override() {
         trainer.output_dir=*|final_model_dir=*)
             die "Use --output-dir instead of overriding ${value%%=*}."
             ;;
+        trainer.wandb_log_model=*)
+            die "W&B artifact policy is fixed: train=end and eval=false."
+            ;;
     esac
 }
 

@@ -34,6 +34,6 @@ wandb_entity: null
 wandb_group: baseline
 wandb_tags: [vimd, wav2vec2, baseline]
 wandb_mode: online       # online | offline | disabled
-wandb_log_model: "end"   # Upload final model artifact when training finishes.
+wandb_log_model: "end"   # Upload exactly one final artifact after training.
 wandb_watch: "false"     # false | gradients | all
 use_cpu: false

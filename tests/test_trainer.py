@@ -64,6 +64,7 @@ def test_build_training_arguments_without_validation(tmp_path) -> None:
         ({"warmup_ratio": 1.0}, "warmup_ratio"),
         ({"wandb_mode": "invalid"}, "wandb_mode"),
         ({"wandb_log_model": "yes"}, "wandb_log_model"),
+        ({"wandb_log_model": "checkpoint"}, "wandb_log_model"),
     ],
 )
 def test_trainer_config_rejects_invalid_values(kwargs, message) -> None:
