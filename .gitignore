@@ -9,3 +9,7 @@ wheels/
 # Virtual environments
 .venv
 data/
+
+# Training artifacts and experiment logs
+outputs/
+wandb/

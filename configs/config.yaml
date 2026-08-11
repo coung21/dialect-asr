@@ -1,0 +1,19 @@
+defaults:
+  - data: vimd
+  - model: wav2vec2_vi
+  - trainer: default
+  - _self_
+
+mode: train                 # train | eval
+checkpoint: null            # Resume checkpoint for train; required for eval.
+split: test                 # validation | test (eval mode).
+evaluate_after_train: true
+final_model_dir: ${trainer.output_dir}/final
+
+# Keep all outputs relative to the repository instead of Hydra run directories.
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: ${trainer.output_dir}/hydra
+  output_subdir: null
