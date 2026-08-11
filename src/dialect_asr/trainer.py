@@ -46,7 +46,7 @@ class TrainerConfig:
     wandb_group: str | None = "baseline"
     wandb_tags: tuple[str, ...] | list[str] = ("vimd", "wav2vec2", "baseline")
     wandb_mode: str = "online"
-    wandb_log_model: str = "false"
+    wandb_log_model: str = "end"
     wandb_watch: str = "false"
     use_cpu: bool = False
 

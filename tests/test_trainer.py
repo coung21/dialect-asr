@@ -105,6 +105,7 @@ def test_default_hyperparameters_are_shared_experiment_values(tmp_path) -> None:
     assert arguments.data_seed == 42
     assert arguments.full_determinism
     assert arguments.report_to == ["wandb"]
+    assert os.environ["WANDB_LOG_MODEL"] == "end"
 
 
 def test_configure_wandb_environment(monkeypatch: pytest.MonkeyPatch) -> None:
