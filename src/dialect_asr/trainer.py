@@ -49,7 +49,8 @@ class TrainerConfig:
     wandb_group: str | None = "baseline"
     wandb_tags: tuple[str, ...] | list[str] = ("vimd", "wav2vec2", "baseline")
     wandb_mode: str = "online"
-    wandb_log_model: str = "end"
+    # Hydra parses an unquoted CLI value `false` as bool False.
+    wandb_log_model: str | bool = "end"
     wandb_watch: str = "false"
     use_cpu: bool = False
 
@@ -71,6 +72,10 @@ class TrainerConfig:
             raise ValueError("warmup_ratio phải nằm trong khoảng [0, 1)")
         if self.wandb_mode not in {"online", "offline", "disabled"}:
             raise ValueError("wandb_mode phải là online, offline hoặc disabled")
+        if self.wandb_log_model is False:
+            self.wandb_log_model = "false"
+        elif self.wandb_log_model is True:
+            raise ValueError("wandb_log_model chỉ được là false hoặc end")
         if self.wandb_log_model not in {"false", "end"}:
             raise ValueError("wandb_log_model chỉ được là false hoặc end")
         if self.wandb_watch not in {"false", "gradients", "all"}:

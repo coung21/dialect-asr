@@ -239,7 +239,7 @@ for split in "${eval_splits[@]}"; do
         "trainer.run_name=${experiment}-eval-${split}"
         "trainer.wandb_group=${experiment}"
         "trainer.wandb_tags=[vimd,${experiment},eval,${split}]"
-        "trainer.wandb_log_model=false"
+        "trainer.wandb_log_model=\"false\""
     )
     eval_command+=("${wandb_overrides[@]}" "${eval_overrides[@]}")
     run_command "${eval_command[@]}"
