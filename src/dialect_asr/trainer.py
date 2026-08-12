@@ -34,7 +34,8 @@ class TrainerConfig:
     group_by_length: bool = True
     length_column_name: str = "length"
     seed: int = DEFAULT_SEED
-    full_determinism: bool = True
+    # CUDA CTC backward has no deterministic implementation in PyTorch.
+    full_determinism: bool = False
     fp16: bool = False
     bf16: bool = False
     tf32: bool | None = None

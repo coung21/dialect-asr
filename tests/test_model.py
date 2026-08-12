@@ -77,6 +77,7 @@ def test_pretrained_factory_uses_default_checkpoint_and_freezes_features(
 
     model = BaselineWav2Vec2CTC.from_vietnamese_pretrained(
         gradient_checkpointing=True,
+        full_determinism=False,
         local_files_only=True,
     )
 

@@ -19,7 +19,8 @@ dataloader_num_workers: 4
 group_by_length: true
 length_column_name: length
 seed: 42
-full_determinism: true
+# Must remain false on CUDA: ctc_loss_backward_gpu is non-deterministic.
+full_determinism: false
 
 fp16: false
 bf16: false

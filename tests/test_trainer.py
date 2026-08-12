@@ -106,7 +106,7 @@ def test_default_hyperparameters_are_shared_experiment_values(tmp_path) -> None:
     assert arguments.length_column_name == "length"
     assert arguments.seed == 42
     assert arguments.data_seed == 42
-    assert arguments.full_determinism
+    assert not arguments.full_determinism
     assert arguments.report_to == ["wandb"]
     assert os.environ["WANDB_LOG_MODEL"] == "end"
 

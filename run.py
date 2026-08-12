@@ -131,6 +131,7 @@ def _load_model(
         freeze_base_model=bool(cfg.model.freeze_base_model),
         gradient_checkpointing=bool(cfg.model.gradient_checkpointing),
         seed=trainer_config.seed,
+        full_determinism=trainer_config.full_determinism,
         local_files_only=bool(cfg.model.local_files_only),
     )
 

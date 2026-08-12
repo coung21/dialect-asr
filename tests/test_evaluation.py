@@ -4,11 +4,8 @@ import numpy as np
 import pytest
 from transformers import EvalPrediction
 
-from dialect_asr.evaluation import (
-    CTCMetrics,
-    compute_asr_metrics,
-    normalize_vietnamese_text,
-)
+from dialect_asr.evaluation import CTCMetrics, compute_asr_metrics
+from dialect_asr.text import normalize_vietnamese_text
 
 
 class FakeProcessor:
@@ -24,7 +21,7 @@ class FakeProcessor:
 
 
 def test_normalize_vietnamese_text() -> None:
-    assert normalize_vietnamese_text("  XIN,   Chào!  ") == "xin chào"
+    assert normalize_vietnamese_text("  XIN,   Chào!  ") == "xin chào"
 
 
 def test_compute_overall_and_regional_metrics() -> None:

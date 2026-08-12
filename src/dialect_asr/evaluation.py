@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 import math
-import re
-import unicodedata
 from typing import Any
 
 import numpy as np
 from jiwer import cer, wer
 from transformers import EvalPrediction
+
+from dialect_asr.text import normalize_vietnamese_text
 
 
 REGION_TO_METRIC = {
@@ -18,14 +18,6 @@ REGION_TO_METRIC = {
     "central": "Central",
     "south": "South",
 }
-
-
-def normalize_vietnamese_text(text: str) -> str:
-    """Normalize transcript text while preserving Vietnamese diacritics."""
-    text = unicodedata.normalize("NFC", text).lower().strip()
-    text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
-    return re.sub(r"\s+", " ", text).strip()
-
 
 def _canonical_region(region: str) -> str:
     key = region.strip().lower()

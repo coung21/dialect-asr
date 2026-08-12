@@ -10,6 +10,8 @@ from datasets import Audio, load_dataset
 
 import torch
 
+from dialect_asr.text import normalize_vietnamese_text
+
 
 VIMD_COLUMNS = {
     "audio",
@@ -86,8 +88,9 @@ def prepare_example(
     audio_array, sampling_rate = _decoded_audio(example[audio_column])
     # audio_array: [T_audio] -> processor batch output: [1, T_audio].
     audio_output = processor(audio_array, sampling_rate=sampling_rate)
-    # One transcript -> token IDs with shape [T_text].
-    text_output = processor(text=example[text_column])
+    normalized_text = normalize_vietnamese_text(str(example[text_column]))
+    # One normalized transcript -> token IDs with shape [T_text].
+    text_output = processor(text=normalized_text)
 
     return {
         # [1, T_audio] -> [T_audio]; collator restores the batch dimension.

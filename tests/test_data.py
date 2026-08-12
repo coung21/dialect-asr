@@ -16,9 +16,11 @@ class FakeProcessor:
 
     def __init__(self) -> None:
         self.audio_calls: list[tuple[object, int]] = []
+        self.text_calls: list[str] = []
 
     def __call__(self, audio=None, *, sampling_rate=None, text=None):
         if text is not None:
+            self.text_calls.append(text)
             return SimpleNamespace(input_ids=[ord(char) % 20 + 1 for char in text])
         self.audio_calls.append((audio, sampling_rate))
         return SimpleNamespace(input_values=[[float(value) for value in audio]])
@@ -59,7 +61,7 @@ def test_prepare_example_uses_vimd_audio_and_text() -> None:
     processor = FakeProcessor()
     example = {
         "audio": {"array": [0.1, -0.2, 0.3], "sampling_rate": 16_000},
-        "text": "xin chào",
+        "text": "  XIN,   Chào!  ",
         "region": "North",
     }
 
@@ -67,6 +69,7 @@ def test_prepare_example_uses_vimd_audio_and_text() -> None:
 
     assert prepared["input_values"] == pytest.approx([0.1, -0.2, 0.3])
     assert len(prepared["labels"]) == len("xin chào")
+    assert processor.text_calls == ["xin chào"]
     assert processor.audio_calls == [([0.1, -0.2, 0.3], 16_000)]
 
 

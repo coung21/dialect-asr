@@ -37,6 +37,7 @@ class BaselineWav2Vec2CTC(Wav2Vec2ForCTC):
         freeze_base_model: bool = False,
         gradient_checkpointing: bool = False,
         seed: int = DEFAULT_SEED,
+        full_determinism: bool = False,
         **from_pretrained_kwargs: Any,
     ) -> Self:
         """Load the Vietnamese checkpoint and configure fine-tuning behavior.
@@ -51,7 +52,7 @@ class BaselineWav2Vec2CTC(Wav2Vec2ForCTC):
             )
 
         # Seed before model construction so any newly initialized tensor is stable.
-        seed_everything(seed)
+        seed_everything(seed, deterministic=full_determinism)
         model = cls.from_pretrained(
             pretrained_model_name,
             **from_pretrained_kwargs,
