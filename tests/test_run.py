@@ -41,6 +41,7 @@ def test_hydra_config_composes_expected_defaults() -> None:
     )
     assert cfg.trainer.num_train_epochs == 15
     assert cfg.trainer.global_train_batch_size == 8
+    assert cfg.trainer.group_by_length is True
     assert cfg.trainer.wandb_log_model == "end"
     assert OmegaConf.to_container(cfg.trainer.wandb_tags) == [
         "vimd",

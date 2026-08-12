@@ -102,6 +102,8 @@ def test_default_hyperparameters_are_shared_experiment_values(tmp_path) -> None:
     assert arguments.warmup_steps == pytest.approx(0.1)
     assert arguments.per_device_train_batch_size == 4
     assert arguments.gradient_accumulation_steps == 2
+    assert arguments.train_sampling_strategy == "group_by_length"
+    assert arguments.length_column_name == "length"
     assert arguments.seed == 42
     assert arguments.data_seed == 42
     assert arguments.full_determinism
@@ -233,6 +235,7 @@ def test_trainer_runs_one_cpu_optimization_step(tmp_path) -> None:
             warmup_ratio=0,
             logging_steps=1,
             dataloader_num_workers=0,
+            group_by_length=False,
             report_to="none",
             use_cpu=True,
         ),

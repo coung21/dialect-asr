@@ -13,3 +13,4 @@ data/
 # Training artifacts and experiment logs
 outputs/
 wandb/
+.cache/

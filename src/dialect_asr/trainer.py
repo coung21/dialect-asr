@@ -31,6 +31,8 @@ class TrainerConfig:
     logging_steps: int = 25
     save_total_limit: int = 2
     dataloader_num_workers: int = 4
+    group_by_length: bool = True
+    length_column_name: str = "length"
     seed: int = DEFAULT_SEED
     full_determinism: bool = True
     fp16: bool = False
@@ -163,6 +165,9 @@ def build_training_arguments(
         gradient_checkpointing=config.gradient_checkpointing,
         dataloader_num_workers=config.dataloader_num_workers,
         dataloader_pin_memory=not config.use_cpu,
+        # Transformers 5 renamed group_by_length to train_sampling_strategy.
+        train_sampling_strategy=("group_by_length" if config.group_by_length else "random"),
+        length_column_name=config.length_column_name,
         remove_unused_columns=True,
         label_names=["labels"],
         report_to=config.report_to,
