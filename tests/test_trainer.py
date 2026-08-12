@@ -101,8 +101,8 @@ def test_default_hyperparameters_are_shared_experiment_values(tmp_path) -> None:
     assert arguments.weight_decay == pytest.approx(0.005)
     assert arguments.optim.value == "adamw_torch"
     assert arguments.warmup_steps == pytest.approx(0.1)
-    assert arguments.per_device_train_batch_size == 4
-    assert arguments.gradient_accumulation_steps == 2
+    assert arguments.per_device_train_batch_size == 8
+    assert arguments.gradient_accumulation_steps == 1
     assert arguments.train_sampling_strategy == "group_by_length"
     assert arguments.length_column_name == "length"
     assert arguments.seed == 42
@@ -110,6 +110,24 @@ def test_default_hyperparameters_are_shared_experiment_values(tmp_path) -> None:
     assert not arguments.full_determinism
     assert arguments.report_to == ["wandb"]
     assert os.environ["WANDB_LOG_MODEL"] == "end"
+
+
+def test_default_batch_size_is_eight_without_accumulation_on_one_gpu(tmp_path) -> None:
+    config = TrainerConfig(
+        output_dir=str(tmp_path / "output"),
+        dataloader_num_workers=0,
+        use_cpu=True,
+    )
+    arguments = build_training_arguments(config, world_size=1)
+
+    assert arguments.per_device_train_batch_size == 8
+    assert arguments.gradient_accumulation_steps == 1
+    assert (
+        arguments.per_device_train_batch_size
+        * 1
+        * arguments.gradient_accumulation_steps
+        == 8
+    )
 
 
 def test_configure_wandb_environment(monkeypatch: pytest.MonkeyPatch) -> None:
