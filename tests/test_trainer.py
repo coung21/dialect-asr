@@ -65,6 +65,7 @@ def test_build_training_arguments_without_validation(tmp_path) -> None:
         ({"wandb_mode": "invalid"}, "wandb_mode"),
         ({"wandb_log_model": "yes"}, "wandb_log_model"),
         ({"wandb_log_model": "checkpoint"}, "wandb_log_model"),
+        ({"wandb_log_model": True}, "wandb_log_model"),
     ],
 )
 def test_trainer_config_rejects_invalid_values(kwargs, message) -> None:
@@ -141,6 +142,12 @@ def test_configure_wandb_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     assert os.environ["WANDB_TAGS"] == "vimd,test"
     assert os.environ["WANDB_MODE"] == "offline"
     assert os.environ["WANDB_LOG_MODEL"] == "false"
+
+
+def test_hydra_boolean_false_disables_wandb_model_upload() -> None:
+    config = TrainerConfig(wandb_log_model=False)
+
+    assert config.wandb_log_model == "false"
 
 
 def test_create_trainer_wires_all_components(
