@@ -22,8 +22,9 @@ class TrainerConfig:
     num_train_epochs: float = 15.0
     learning_rate: float = 1e-4
     weight_decay: float = 0.005
+    # Defaults target one GPU with a real batch of 8 and no accumulation.
     global_train_batch_size: int = 8
-    per_device_train_batch_size: int = 4
+    per_device_train_batch_size: int = 8
     per_device_eval_batch_size: int = 4
     warmup_ratio: float = 0.1
     optimizer: str = "adamw_torch"
