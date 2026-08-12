@@ -8,7 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
-data/
+# Large local dataset at the repository root; do not ignore configs/data/.
+/data/
 
 # Training artifacts and experiment logs
 outputs/
