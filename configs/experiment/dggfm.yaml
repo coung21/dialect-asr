@@ -1,0 +1,11 @@
+# @package _global_
+
+defaults:
+  - override /model: wav2vec2_dggfm
+  - _self_
+
+trainer:
+  output_dir: outputs/dggfm
+  run_name: dggfm
+  wandb_group: dggfm
+  wandb_tags: [vimd, wav2vec2, dggfm]

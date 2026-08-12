@@ -63,10 +63,9 @@ Examples:
     --train-override trainer.num_train_epochs=1 \
     --eval-override data.max_test_samples=8
 
-  # Future fusion experiment with separate train/eval overrides.
-  scripts/run_experiment.sh --experiment film \
-    --train-override model=film \
-    --train-override fusion.dropout=0.1 \
+  # A matching configs/experiment/dggfm.yaml is selected automatically.
+  scripts/run_experiment.sh --experiment dggfm \
+    --train-override trainer.fp16=true \
     --eval-override data.max_test_samples=500
 EOF
 }
@@ -170,6 +169,11 @@ fi
 readonly output_dir
 readonly final_model_dir="${output_dir}/final"
 
+declare -a experiment_overrides=()
+if [[ -f "${PROJECT_ROOT}/configs/experiment/${experiment}.yaml" ]]; then
+    experiment_overrides+=("experiment=${experiment}")
+fi
+
 declare -a wandb_overrides=()
 case "${wandb_mode}" in
     online) ;;
@@ -197,6 +201,7 @@ fi
 if [[ "${skip_train}" == false ]]; then
     train_command=(
         uv run python run.py
+        "${experiment_overrides[@]}"
         "mode=train"
         "evaluate_after_train=false"
         "trainer.output_dir=${output_dir}"
@@ -232,6 +237,7 @@ fi
 for split in "${eval_splits[@]}"; do
     eval_command=(
         uv run python run.py
+        "${experiment_overrides[@]}"
         "mode=eval"
         "split=${split}"
         "checkpoint=${eval_checkpoint}"

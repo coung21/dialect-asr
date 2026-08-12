@@ -24,6 +24,24 @@ VIMD_COLUMNS = {
     "gender",
 }
 
+REGION_TO_LABEL = {
+    "north": 0,
+    "central": 1,
+    "south": 2,
+}
+
+
+def region_to_label(region: str) -> int:
+    """Map a ViMD region name to the class ID consumed by DGGFM."""
+    normalized_region = str(region).strip().lower()
+    try:
+        return REGION_TO_LABEL[normalized_region]
+    except KeyError as exc:
+        expected = ", ".join(REGION_TO_LABEL)
+        raise ValueError(
+            f"Region không hợp lệ {region!r}; cần một trong: {expected}"
+        ) from exc
+
 
 def _split_files(data_dir: str | Path) -> dict[str, str]:
     data_dir = Path(data_dir)
@@ -83,8 +101,9 @@ def prepare_example(
     processor: Any,
     audio_column: str = "audio",
     text_column: str = "text",
+    region_column: str = "region",
 ) -> dict[str, Any]:
-    """Convert one record to ``input_values[T_audio]`` and ``labels[T_text]``."""
+    """Convert one ViMD record into audio, CTC and region model inputs."""
     audio_array, sampling_rate = _decoded_audio(example[audio_column])
     # audio_array: [T_audio] -> processor batch output: [1, T_audio].
     audio_output = processor(audio_array, sampling_rate=sampling_rate)
@@ -96,6 +115,7 @@ def prepare_example(
         # [1, T_audio] -> [T_audio]; collator restores the batch dimension.
         "input_values": audio_output.input_values[0],
         "labels": text_output.input_ids,  # [T_text].
+        "region_labels": region_to_label(example[region_column]),  # Scalar class ID [].
     }
 
 
@@ -104,12 +124,19 @@ def prepare_dataset(
     processor: Any,
     audio_column: str = "audio",
     text_column: str = "text",
+    region_column: str = "region",
     num_proc: int | None = None,
 ) -> Any:
     """Preprocess every split while retaining transcript and dialect metadata."""
 
     def preprocess(example: dict[str, Any]) -> dict[str, Any]:
-        return prepare_example(example, processor, audio_column, text_column)
+        return prepare_example(
+            example,
+            processor,
+            audio_column,
+            text_column,
+            region_column,
+        )
 
     return dataset.map(
         preprocess,
@@ -171,4 +198,13 @@ class DataCollatorCTCWithPadding:
         batch["labels"] = label_batch["input_ids"].masked_fill(
             label_batch["attention_mask"].ne(1), -100
         )
+
+        has_region_labels = ["region_labels" in example for example in examples]
+        if any(has_region_labels) and not all(has_region_labels):
+            raise ValueError("Mọi example trong batch phải cùng có region_labels")
+        if all(has_region_labels):
+            batch["region_labels"] = torch.tensor(
+                [example["region_labels"] for example in examples],
+                dtype=torch.long,
+            )  # B scalar region IDs [] -> region labels [B].
         return batch
