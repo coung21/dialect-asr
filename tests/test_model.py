@@ -1,14 +1,21 @@
+import inspect
 from types import SimpleNamespace
 
 import pytest
 import torch
 from transformers import Wav2Vec2Config
 
+from dialect_asr.base_model import AbstractWav2Vec2CTC
 from dialect_asr.model import (
     DEFAULT_PRETRAINED_MODEL,
     BaselineWav2Vec2CTC,
     load_vietnamese_processor,
 )
+
+
+def test_base_model_is_abstract_and_baseline_declares_architecture() -> None:
+    assert inspect.isabstract(AbstractWav2Vec2CTC)
+    assert BaselineWav2Vec2CTC.architecture_name() == "baseline"
 
 
 def tiny_config() -> Wav2Vec2Config:
