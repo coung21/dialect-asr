@@ -1,5 +1,6 @@
 """Dialect-aware Vietnamese speech recognition."""
 
+from .base_model import AbstractWav2Vec2CTC
 from .data import (
     DataCollatorCTCWithPadding,
     load_vimd,
@@ -27,6 +28,7 @@ from .trainer import (
 )
 
 __all__ = [
+    "AbstractWav2Vec2CTC",
     "DataCollatorCTCWithPadding",
     "load_vimd",
     "prepare_dataset",

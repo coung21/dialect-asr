@@ -12,6 +12,7 @@ from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, OmegaConf
 
 from dialect_asr import (
+    AbstractWav2Vec2CTC,
     BaselineWav2Vec2CTC,
     DataCollatorCTCWithPadding,
     TrainerConfig,
@@ -114,7 +115,7 @@ def _load_model(
     cfg: DictConfig,
     trainer_config: TrainerConfig,
     checkpoint: str | None,
-) -> BaselineWav2Vec2CTC:
+) -> AbstractWav2Vec2CTC:
     if cfg.mode == "eval":
         seed_everything(
             trainer_config.seed,
