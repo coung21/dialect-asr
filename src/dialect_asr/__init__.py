@@ -13,6 +13,7 @@ from .model import (
     BaselineWav2Vec2CTC,
     load_vietnamese_processor,
 )
+from .modules import DialectBranch
 from .reproducibility import (
     DEFAULT_SEED,
     seed_data_worker,
@@ -39,6 +40,7 @@ __all__ = [
     "DEFAULT_PRETRAINED_MODEL",
     "BaselineWav2Vec2CTC",
     "load_vietnamese_processor",
+    "DialectBranch",
     "DEFAULT_SEED",
     "seed_data_worker",
     "seed_everything",
