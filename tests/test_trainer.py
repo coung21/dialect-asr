@@ -100,8 +100,8 @@ def test_default_hyperparameters_are_shared_experiment_values(tmp_path) -> None:
     assert arguments.weight_decay == pytest.approx(0.005)
     assert arguments.optim.value == "adamw_torch"
     assert arguments.warmup_steps == pytest.approx(0.1)
-    assert arguments.per_device_train_batch_size == 4
-    assert arguments.gradient_accumulation_steps == 2
+    assert arguments.per_device_train_batch_size == 8
+    assert arguments.gradient_accumulation_steps == 1
     assert arguments.train_sampling_strategy == "group_by_length"
     assert arguments.length_column_name == "length"
     assert arguments.seed == 42

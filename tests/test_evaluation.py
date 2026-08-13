@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from transformers import EvalPrediction
 
-from dialect_asr.evaluation import CTCMetrics, compute_asr_metrics
+from dialect_asr.evaluation import CTCMetrics, DANNMetrics, compute_asr_metrics
 from dialect_asr.text import normalize_vietnamese_text
 
 
@@ -101,3 +101,46 @@ def test_metric_rejects_region_length_mismatch() -> None:
                 label_ids=np.array([[1, -100]]),  # [N=1, T_text=2].
             )
         )
+
+
+def test_dann_metrics_compute_classification_quality_and_losses() -> None:
+    processor = FakeProcessor(
+        decoded_batches=[
+            ["a", "b", "c"],
+            ["a", "b", "c"],
+        ]
+    )
+    metric = DANNMetrics(
+        processor,
+        regions=["North", "Central", "South"],
+    )
+    ctc_ids = np.array([[1, 0], [2, 0], [3, 0]])
+    # Greedy CTC IDs [N=3, T_frame=2].
+    dialect_logits = np.array(
+        [[4.0, 0.0, 0.0], [0.0, 0.0, 4.0], [0.0, 0.0, 4.0]]
+    )
+    # Dialect logits [N=3, R=3] -> predicted region IDs [0, 2, 2].
+    ctc_losses = np.array([1.0, 1.2, 1.4])  # Per-sample values [N=3].
+    dialect_losses = np.array([0.2, 0.4, 0.6])  # Per-sample values [N=3].
+    ctc_labels = np.array([[1, -100], [2, -100], [3, -100]])
+    # CTC labels [N=3, T_text=2].
+    region_labels = np.array([0, 1, 2])  # Region IDs [N=3].
+
+    metrics = metric(
+        EvalPrediction(
+            predictions=(
+                ctc_ids,
+                dialect_logits,
+                ctc_losses,
+                dialect_losses,
+            ),
+            label_ids=(ctc_labels, region_labels),
+        )
+    )
+
+    assert metrics["WER"] == 0.0
+    assert metrics["CER"] == 0.0
+    assert metrics["ctc_loss"] == pytest.approx(1.2)
+    assert metrics["dialect_loss"] == pytest.approx(0.4)
+    assert metrics["dialect_accuracy"] == pytest.approx(2 / 3)
+    assert metrics["dialect_macro_f1"] == pytest.approx((1.0 + 0.0 + 2 / 3) / 3)

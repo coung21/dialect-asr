@@ -127,6 +127,90 @@ class CTCMetrics:
         )
 
 
-def build_compute_metrics(processor: Any, regions: Sequence[str]) -> CTCMetrics:
-    """Build the metric callable passed to ``create_trainer``."""
-    return CTCMetrics(processor, regions)
+def _macro_f1(
+    predictions: np.ndarray,
+    references: np.ndarray,
+    *,
+    num_classes: int,
+) -> float:
+    """Compute the unweighted mean F1 over all configured region classes."""
+    class_scores: list[float] = []
+    for class_id in range(num_classes):
+        predicted_class = predictions == class_id
+        # Region IDs [N] -> boolean prediction mask [N].
+        reference_class = references == class_id
+        # Region IDs [N] -> boolean reference mask [N].
+        true_positive = int(np.logical_and(predicted_class, reference_class).sum())
+        false_positive = int(
+            np.logical_and(predicted_class, ~reference_class).sum()
+        )
+        false_negative = int(
+            np.logical_and(~predicted_class, reference_class).sum()
+        )
+        denominator = 2 * true_positive + false_positive + false_negative
+        class_scores.append(
+            0.0 if denominator == 0 else (2.0 * true_positive) / denominator
+        )
+    return float(np.mean(class_scores))
+
+
+class DANNMetrics(CTCMetrics):
+    """Compute ASR metrics, dialect quality and DANN component losses."""
+
+    def __call__(self, prediction: EvalPrediction) -> dict[str, float]:
+        if (
+            not isinstance(prediction.predictions, tuple)
+            or len(prediction.predictions) != 4
+        ):
+            raise ValueError(
+                "DANN predictions phải gồm "
+                "(ctc_ids, dialect_logits, ctc_losses, dialect_losses)"
+            )
+        if not isinstance(prediction.label_ids, tuple) or len(prediction.label_ids) != 2:
+            raise ValueError("DANN label_ids phải gồm (labels, region_labels)")
+
+        ctc_ids, dialect_logits, ctc_losses, dialect_losses = prediction.predictions
+        ctc_labels, region_labels = prediction.label_ids
+        metrics = super().__call__(
+            EvalPrediction(
+                predictions=ctc_ids,  # [N, T_frame].
+                label_ids=ctc_labels,  # [N, T_text].
+            )
+        )
+
+        dialect_logits = np.asarray(dialect_logits)  # [N, R].
+        region_labels = np.asarray(region_labels).reshape(-1)
+        # Region label tensor [N] or [N, 1] -> flat IDs [N].
+        if dialect_logits.ndim != 2:
+            raise ValueError("dialect_logits phải có shape [N, R]")
+        if region_labels.shape[0] != dialect_logits.shape[0]:
+            raise ValueError("Số dialect logits và region labels phải bằng nhau")
+
+        predicted_regions = np.argmax(dialect_logits, axis=-1)
+        # Dialect logits [N, R] -> predicted region IDs [N].
+        metrics.update(
+            {
+                "ctc_loss": float(np.asarray(ctc_losses).mean()),
+                "dialect_loss": float(np.asarray(dialect_losses).mean()),
+                "dialect_accuracy": float(
+                    np.mean(predicted_regions == region_labels)
+                ),
+                "dialect_macro_f1": _macro_f1(
+                    predicted_regions,  # [N].
+                    region_labels,  # [N].
+                    num_classes=dialect_logits.shape[-1],
+                ),
+            }
+        )
+        return metrics
+
+
+def build_compute_metrics(
+    processor: Any,
+    regions: Sequence[str],
+    *,
+    architecture: str = "baseline",
+) -> CTCMetrics:
+    """Build metrics appropriate for the selected model architecture."""
+    metric_class = DANNMetrics if architecture == "dann" else CTCMetrics
+    return metric_class(processor, regions)

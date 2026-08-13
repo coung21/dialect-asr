@@ -8,6 +8,7 @@ from dialect_asr.data import (
     DataCollatorCTCWithPadding,
     _split_files,
     prepare_example,
+    region_to_label,
 )
 
 
@@ -69,6 +70,7 @@ def test_prepare_example_uses_vimd_audio_and_text() -> None:
 
     assert prepared["input_values"] == pytest.approx([0.1, -0.2, 0.3])
     assert len(prepared["labels"]) == len("xin chào")
+    assert prepared["region_labels"] == 0
     assert processor.text_calls == ["xin chào"]
     assert processor.audio_calls == [([0.1, -0.2, 0.3], 16_000)]
 
@@ -93,6 +95,28 @@ def test_collator_pads_audio_and_replaces_label_padding_with_minus_100() -> None
 def test_collator_rejects_empty_batch() -> None:
     with pytest.raises(ValueError, match="batch rỗng"):
         DataCollatorCTCWithPadding(FakeProcessor())([])
+
+
+def test_collator_builds_region_labels() -> None:
+    collator = DataCollatorCTCWithPadding(FakeProcessor())
+    batch = collator(
+        [
+            {"input_values": [0.1], "labels": [4], "region_labels": 0},
+            {"input_values": [0.2], "labels": [5], "region_labels": 2},
+        ]
+    )
+
+    assert batch["region_labels"].shape == (2,)  # B scalar IDs -> [B=2].
+    assert batch["region_labels"].dtype == torch.long
+    assert batch["region_labels"].tolist() == [0, 2]
+
+
+@pytest.mark.parametrize(
+    ("region", "expected"),
+    [("North", 0), (" central ", 1), ("SOUTH", 2)],
+)
+def test_region_to_label(region, expected) -> None:
+    assert region_to_label(region) == expected
 
 
 def test_split_files_maps_vimd_names(tmp_path: Path) -> None:

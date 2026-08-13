@@ -22,8 +22,9 @@ class TrainerConfig:
     num_train_epochs: float = 15.0
     learning_rate: float = 1e-4
     weight_decay: float = 0.005
+    # One-GPU default: real batch size 8, without gradient accumulation.
     global_train_batch_size: int = 8
-    per_device_train_batch_size: int = 4
+    per_device_train_batch_size: int = 8
     per_device_eval_batch_size: int = 4
     warmup_ratio: float = 0.1
     optimizer: str = "adamw_torch"
@@ -49,7 +50,8 @@ class TrainerConfig:
     wandb_group: str | None = "baseline"
     wandb_tags: tuple[str, ...] | list[str] = ("vimd", "wav2vec2", "baseline")
     wandb_mode: str = "online"
-    wandb_log_model: str = "end"
+    # Hydra parses an unquoted CLI value false as bool False.
+    wandb_log_model: str | bool = "end"
     wandb_watch: str = "false"
     use_cpu: bool = False
 
@@ -71,6 +73,10 @@ class TrainerConfig:
             raise ValueError("warmup_ratio phải nằm trong khoảng [0, 1)")
         if self.wandb_mode not in {"online", "offline", "disabled"}:
             raise ValueError("wandb_mode phải là online, offline hoặc disabled")
+        if self.wandb_log_model is False:
+            self.wandb_log_model = "false"
+        elif self.wandb_log_model is True:
+            raise ValueError("wandb_log_model chỉ được là false hoặc end")
         if self.wandb_log_model not in {"false", "end"}:
             raise ValueError("wandb_log_model chỉ được là false hoặc end")
         if self.wandb_watch not in {"false", "gradients", "all"}:
@@ -122,6 +128,7 @@ def build_training_arguments(
     *,
     has_eval_dataset: bool = True,
     world_size: int | None = None,
+    label_names: list[str] | None = None,
 ) -> TrainingArguments:
     """Convert the project config into Hugging Face training arguments."""
     configure_wandb_environment(config)
@@ -170,7 +177,7 @@ def build_training_arguments(
         train_sampling_strategy=("group_by_length" if config.group_by_length else "random"),
         length_column_name=config.length_column_name,
         remove_unused_columns=True,
-        label_names=["labels"],
+        label_names=label_names or ["labels"],
         report_to=config.report_to,
         run_name=config.run_name,
         seed=config.seed,
@@ -191,6 +198,113 @@ def preprocess_logits_for_ctc(
     return torch.argmax(logits, dim=-1)  # [B, T_frame, V] -> [B, T_frame].
 
 
+def preprocess_logits_for_dann(
+    logits: tuple[Tensor, Tensor, Tensor, Tensor],
+    labels: Any = None,
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    """Reduce CTC logits while retaining dialect outputs and component losses."""
+    del labels
+    if not isinstance(logits, tuple) or len(logits) != 4:
+        raise ValueError(
+            "DANN logits phải gồm "
+            "(ctc_logits, dialect_logits, ctc_losses, dialect_losses)"
+        )
+    ctc_logits, dialect_logits, ctc_losses, dialect_losses = logits
+    ctc_ids = torch.argmax(ctc_logits, dim=-1)
+    # CTC logits [B, T_frame, V] -> greedy IDs [B, T_frame].
+    return ctc_ids, dialect_logits, ctc_losses, dialect_losses
+
+
+class DANNTrainer(Trainer):
+    """Trainer that logs DANN component losses and dialect predictions."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._train_component_sums = {"ctc_loss": 0.0, "dialect_loss": 0.0}
+        self._train_component_count = 0
+        super().__init__(*args, **kwargs)
+        self.model_accepts_loss_kwargs = False
+
+    def compute_loss(
+        self,
+        model: torch.nn.Module,
+        inputs: dict[str, Tensor | Any],
+        return_outputs: bool = False,
+        num_items_in_batch: Tensor | int | None = None,
+    ) -> Tensor | tuple[Tensor, Any]:
+        del num_items_in_batch
+        outputs = model(**inputs)
+        if outputs.loss is None:
+            raise ValueError("DANN model không trả về total loss")
+
+        if model.training:
+            for name in self._train_component_sums:
+                component = getattr(outputs, name, None)
+                if component is None:
+                    raise ValueError(f"DANN model không trả về {name}")
+                self._train_component_sums[name] += float(
+                    component.detach().mean()
+                )
+                # Component tensor [] -> detached Python scalar [].
+            self._train_component_count += 1
+
+        return (outputs.loss, outputs) if return_outputs else outputs.loss
+
+    def log(self, logs: dict[str, float], start_time: float | None = None) -> None:
+        if "loss" in logs and self._train_component_count > 0:
+            logs = dict(logs)
+            for name, component_sum in self._train_component_sums.items():
+                logs[name] = component_sum / self._train_component_count
+            self._train_component_sums = {"ctc_loss": 0.0, "dialect_loss": 0.0}
+            self._train_component_count = 0
+        super().log(logs, start_time=start_time)
+
+    def prediction_step(
+        self,
+        model: torch.nn.Module,
+        inputs: dict[str, Tensor | Any],
+        prediction_loss_only: bool,
+        ignore_keys: list[str] | None = None,
+    ) -> tuple[Tensor | None, Any, Any]:
+        del ignore_keys
+        inputs = self._prepare_inputs(inputs)
+        ctc_labels = inputs.get("labels")
+        region_labels = inputs.get("region_labels")
+        if ctc_labels is None or region_labels is None:
+            raise ValueError("DANN eval yêu cầu labels và region_labels")
+
+        with torch.no_grad(), self.compute_loss_context_manager():
+            outputs = model(**inputs)
+        if (
+            outputs.loss is None
+            or outputs.ctc_loss is None
+            or outputs.dialect_loss is None
+            or outputs.dialect_logits is None
+        ):
+            raise ValueError("DANN eval không trả về đầy đủ outputs")
+
+        loss = outputs.loss.detach().mean()
+        # A scalar total loss [] remains one detached scalar [].
+        if prediction_loss_only:
+            return loss, None, None
+
+        batch_size = outputs.logits.shape[0]
+        ctc_losses = outputs.ctc_loss.detach().reshape(1).expand(batch_size)
+        # Batch CTC scalar [] -> repeated aggregation vector [B].
+        dialect_losses = outputs.dialect_loss.detach().reshape(1).expand(batch_size)
+        # Batch dialect scalar [] -> repeated aggregation vector [B].
+        predictions = (
+            outputs.logits.detach(),  # [B, T_frame, V].
+            outputs.dialect_logits.detach(),  # [B, R].
+            ctc_losses,  # [B].
+            dialect_losses,  # [B].
+        )
+        label_ids = (
+            ctc_labels.detach(),  # [B, T_text].
+            region_labels.detach(),  # [B].
+        )
+        return loss, predictions, label_ids
+
+
 def create_trainer(
     *,
     model: Any,
@@ -209,9 +323,22 @@ def create_trainer(
     training_args = build_training_arguments(
         config,
         has_eval_dataset=eval_dataset is not None,
+        label_names=(
+            ["labels", "region_labels"]
+            if getattr(getattr(model, "config", None), "architecture", None)
+            == "dann"
+            else ["labels"]
+        ),
     )
 
-    return Trainer(
+    is_dann = (
+        getattr(getattr(model, "config", None), "architecture", None) == "dann"
+    )
+    trainer_class = DANNTrainer if is_dann else Trainer
+    preprocess_logits = (
+        preprocess_logits_for_dann if is_dann else preprocess_logits_for_ctc
+    )
+    return trainer_class(
         model=model,
         args=training_args,
         data_collator=data_collator,
@@ -221,5 +348,5 @@ def create_trainer(
         compute_metrics=compute_metrics,
         callbacks=callbacks,
         # During eval, logits [B, T_frame, V] are reduced to IDs [B, T_frame].
-        preprocess_logits_for_metrics=preprocess_logits_for_ctc,
+        preprocess_logits_for_metrics=preprocess_logits,
     )

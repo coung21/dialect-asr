@@ -15,7 +15,9 @@ from dialect_asr import (
     BaselineWav2Vec2CTC,
     DataCollatorCTCWithPadding,
     TrainerConfig,
+    architecture_from_checkpoint,
     build_compute_metrics,
+    build_project_model,
     create_trainer,
     load_vietnamese_processor,
     load_vimd,
@@ -115,18 +117,27 @@ def _load_model(
     trainer_config: TrainerConfig,
     checkpoint: str | None,
 ) -> BaselineWav2Vec2CTC:
-    if cfg.mode == "eval":
-        seed_everything(
-            trainer_config.seed,
-            deterministic=trainer_config.full_determinism,
-        )
-        return BaselineWav2Vec2CTC.from_pretrained(
-            checkpoint,
+    evaluation = cfg.mode == "eval"
+    architecture = str(cfg.model.architecture)
+    source = str(cfg.model.pretrained_model_name)
+    if evaluation:
+        if checkpoint is None:
+            raise ValueError("Eval yêu cầu checkpoint")
+        source = checkpoint
+        architecture = architecture_from_checkpoint(
+            source,
+            fallback=architecture,
             local_files_only=bool(cfg.model.local_files_only),
         )
 
-    return BaselineWav2Vec2CTC.from_vietnamese_pretrained(
-        pretrained_model_name=str(cfg.model.pretrained_model_name),
+    model_options = OmegaConf.to_container(cfg.model, resolve=True)
+    if not isinstance(model_options, dict):
+        raise TypeError("model config phải là một mapping")
+    return build_project_model(
+        architecture=architecture,
+        source=source,
+        evaluation=evaluation,
+        model_options=model_options,
         freeze_feature_encoder=bool(cfg.model.freeze_feature_encoder),
         freeze_base_model=bool(cfg.model.freeze_base_model),
         gradient_checkpointing=bool(cfg.model.gradient_checkpointing),
@@ -168,6 +179,7 @@ def run(cfg: DictConfig) -> None:
         processor,
         audio_column=str(cfg.data.audio_column),
         text_column=str(cfg.data.text_column),
+        region_column=str(cfg.data.region_column),
         num_proc=cfg.data.num_proc,
     )
     data_collator = DataCollatorCTCWithPadding(processor=processor)
@@ -176,6 +188,7 @@ def run(cfg: DictConfig) -> None:
     compute_metrics = build_compute_metrics(
         processor,
         dataset[metric_split]["region"],
+        architecture=str(getattr(model.config, "architecture", "baseline")),
     )
     trainer = create_trainer(
         model=model,

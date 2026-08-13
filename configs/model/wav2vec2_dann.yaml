@@ -1,0 +1,19 @@
+architecture: dann
+pretrained_model_name: nguyenvulebinh/wav2vec2-base-vi-vlsp2020
+
+freeze_feature_encoder: true
+freeze_base_model: false
+gradient_checkpointing: false
+local_files_only: false
+
+# The dialect head always branches from hidden_states[-1], block 12 for wav2vec2-base.
+branch_block: final
+num_regions: 3
+dialect_bottleneck_size: 256
+dialect_dropout: 0.1
+
+# loss = CTC loss + dialect_loss_weight * dialect CE loss.
+dialect_loss_weight: 1.0
+# Encoder gradient contributed by dialect CE is multiplied by -grl_scale.
+# Start conservatively because dialect_loss_weight is already 1.0.
+grl_scale: 0.1

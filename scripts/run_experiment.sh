@@ -170,6 +170,11 @@ fi
 readonly output_dir
 readonly final_model_dir="${output_dir}/final"
 
+declare -a experiment_overrides=()
+if [[ -f "${PROJECT_ROOT}/configs/experiment/${experiment}.yaml" ]]; then
+    experiment_overrides+=("experiment=${experiment}")
+fi
+
 declare -a wandb_overrides=()
 case "${wandb_mode}" in
     online) ;;
@@ -197,6 +202,7 @@ fi
 if [[ "${skip_train}" == false ]]; then
     train_command=(
         uv run python run.py
+        "${experiment_overrides[@]}"
         "mode=train"
         "evaluate_after_train=false"
         "trainer.output_dir=${output_dir}"
@@ -232,6 +238,7 @@ fi
 for split in "${eval_splits[@]}"; do
     eval_command=(
         uv run python run.py
+        "${experiment_overrides[@]}"
         "mode=eval"
         "split=${split}"
         "checkpoint=${eval_checkpoint}"
@@ -239,7 +246,7 @@ for split in "${eval_splits[@]}"; do
         "trainer.run_name=${experiment}-eval-${split}"
         "trainer.wandb_group=${experiment}"
         "trainer.wandb_tags=[vimd,${experiment},eval,${split}]"
-        "trainer.wandb_log_model=false"
+        "trainer.wandb_log_model=\"false\""
     )
     eval_command+=("${wandb_overrides[@]}" "${eval_overrides[@]}")
     run_command "${eval_command[@]}"
