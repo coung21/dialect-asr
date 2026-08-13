@@ -1,0 +1,14 @@
+architecture: multitask
+pretrained_model_name: nguyenvulebinh/wav2vec2-base-vi-vlsp2020
+
+freeze_feature_encoder: true
+freeze_base_model: false
+gradient_checkpointing: false
+local_files_only: false
+
+# Branch after Transformer block 6 (block numbering starts from 1).
+branch_block: 6
+num_regions: 3
+dialect_bottleneck_size: 256
+dialect_dropout: 0.1
+dialect_loss_weight: 1.0

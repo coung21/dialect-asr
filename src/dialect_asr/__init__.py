@@ -9,13 +9,19 @@ from .data import (
     region_to_label,
 )
 from .dggfm_model import DGGFMCTCOutput, DGGFMWav2Vec2CTC
-from .evaluation import CTCMetrics, build_compute_metrics, compute_asr_metrics
+from .evaluation import (
+    CTCMetrics,
+    MultitaskMetrics,
+    build_compute_metrics,
+    compute_asr_metrics,
+)
 from .model import (
     DEFAULT_PRETRAINED_MODEL,
     BaselineWav2Vec2CTC,
     load_vietnamese_processor,
 )
 from .modules import DGGFM, DialectBranch, SoftDialectEmbedding
+from .multitask_model import MultitaskCTCOutput, MultitaskWav2Vec2CTC
 from .reproducibility import (
     DEFAULT_SEED,
     seed_data_worker,
@@ -29,11 +35,13 @@ from .registry import (
     get_model_class,
 )
 from .trainer import (
+    MultitaskTrainer,
     TrainerConfig,
     build_training_arguments,
     configure_wandb_environment,
     create_trainer,
     preprocess_logits_for_ctc,
+    preprocess_logits_for_multitask,
 )
 
 __all__ = [
@@ -46,6 +54,7 @@ __all__ = [
     "prepare_example",
     "region_to_label",
     "CTCMetrics",
+    "MultitaskMetrics",
     "build_compute_metrics",
     "compute_asr_metrics",
     "DEFAULT_PRETRAINED_MODEL",
@@ -54,6 +63,8 @@ __all__ = [
     "DialectBranch",
     "DGGFM",
     "SoftDialectEmbedding",
+    "MultitaskCTCOutput",
+    "MultitaskWav2Vec2CTC",
     "DEFAULT_SEED",
     "seed_data_worker",
     "seed_everything",
@@ -63,8 +74,10 @@ __all__ = [
     "build_project_model",
     "get_model_class",
     "TrainerConfig",
+    "MultitaskTrainer",
     "build_training_arguments",
     "configure_wandb_environment",
     "create_trainer",
     "preprocess_logits_for_ctc",
+    "preprocess_logits_for_multitask",
 ]

@@ -65,6 +65,18 @@ def test_dggfm_experiment_composes_model_and_run_settings() -> None:
     assert cfg.trainer.wandb_group == "dggfm"
 
 
+def test_multitask_experiment_composes_model_and_run_settings() -> None:
+    cfg = compose_config("experiment=multitask")
+
+    assert cfg.model.architecture == "multitask"
+    assert cfg.model.branch_block == 6
+    assert cfg.model.num_regions == 3
+    assert cfg.model.dialect_bottleneck_size == 256
+    assert cfg.model.dialect_loss_weight == pytest.approx(1.0)
+    assert cfg.trainer.output_dir == "outputs/multitask"
+    assert cfg.trainer.wandb_group == "multitask"
+
+
 def test_eval_mode_requires_checkpoint() -> None:
     cfg = compose_config("mode=eval", "split=test")
 

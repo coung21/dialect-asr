@@ -10,11 +10,13 @@ from transformers import Wav2Vec2Config
 from .base_model import AbstractWav2Vec2CTC
 from .dggfm_model import DGGFMWav2Vec2CTC
 from .model import BaselineWav2Vec2CTC
+from .multitask_model import MultitaskWav2Vec2CTC
 
 
 MODEL_REGISTRY: dict[str, type[AbstractWav2Vec2CTC]] = {
     BaselineWav2Vec2CTC.architecture_name(): BaselineWav2Vec2CTC,
     DGGFMWav2Vec2CTC.architecture_name(): DGGFMWav2Vec2CTC,
+    MultitaskWav2Vec2CTC.architecture_name(): MultitaskWav2Vec2CTC,
 }
 
 DGGFM_CONFIG_MAPPING = {
@@ -27,6 +29,14 @@ DGGFM_CONFIG_MAPPING = {
     "temperature": "dialect_temperature",
     "dialect_loss_weight": "dialect_loss_weight",
     "dialect_dropout": "dialect_dropout",
+}
+
+MULTITASK_CONFIG_MAPPING = {
+    "branch_block": "multitask_branch_block",
+    "num_regions": "num_regions",
+    "dialect_bottleneck_size": "dialect_bottleneck_size",
+    "dialect_dropout": "dialect_dropout",
+    "dialect_loss_weight": "dialect_loss_weight",
 }
 
 
@@ -79,12 +89,20 @@ def build_project_model(
         )
 
     pretrained_kwargs: dict[str, Any] = {}
-    if architecture == DGGFMWav2Vec2CTC.architecture_name():
+    if architecture in {
+        DGGFMWav2Vec2CTC.architecture_name(),
+        MultitaskWav2Vec2CTC.architecture_name(),
+    }:
         pretrained_config = Wav2Vec2Config.from_pretrained(
             source,
             local_files_only=local_files_only,
         )
-        for option_name, config_name in DGGFM_CONFIG_MAPPING.items():
+        config_mapping = (
+            DGGFM_CONFIG_MAPPING
+            if architecture == DGGFMWav2Vec2CTC.architecture_name()
+            else MULTITASK_CONFIG_MAPPING
+        )
+        for option_name, config_name in config_mapping.items():
             if option_name in model_options:
                 setattr(pretrained_config, config_name, model_options[option_name])
         pretrained_kwargs["config"] = pretrained_config

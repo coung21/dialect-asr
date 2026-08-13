@@ -1,0 +1,11 @@
+# @package _global_
+
+defaults:
+  - override /model: wav2vec2_multitask
+  - _self_
+
+trainer:
+  output_dir: outputs/multitask
+  run_name: multitask
+  wandb_group: multitask
+  wandb_tags: [vimd, wav2vec2, multitask]

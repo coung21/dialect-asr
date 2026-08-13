@@ -188,6 +188,7 @@ def run(cfg: DictConfig) -> None:
     compute_metrics = build_compute_metrics(
         processor,
         dataset[metric_split]["region"],
+        multitask=getattr(model.config, "architecture", None) == "multitask",
     )
     trainer = create_trainer(
         model=model,

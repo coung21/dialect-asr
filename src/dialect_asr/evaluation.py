@@ -127,6 +127,84 @@ class CTCMetrics:
         )
 
 
-def build_compute_metrics(processor: Any, regions: Sequence[str]) -> CTCMetrics:
-    """Build the metric callable passed to ``create_trainer``."""
-    return CTCMetrics(processor, regions)
+class MultitaskMetrics(CTCMetrics):
+    """Compute ASR metrics plus dialect classification quality and losses."""
+
+    def __call__(self, prediction: EvalPrediction) -> dict[str, float]:
+        if not isinstance(prediction.predictions, tuple) or len(prediction.predictions) != 4:
+            raise ValueError(
+                "Multitask predictions phải gồm "
+                "(ctc_ids, dialect_logits, ctc_losses, dialect_losses)"
+            )
+        if not isinstance(prediction.label_ids, tuple) or len(prediction.label_ids) != 2:
+            raise ValueError("Multitask label_ids phải gồm (labels, region_labels)")
+
+        ctc_ids, dialect_logits, ctc_losses, dialect_losses = prediction.predictions
+        ctc_labels, region_labels = prediction.label_ids
+        asr_metrics = super().__call__(
+            EvalPrediction(
+                predictions=ctc_ids,  # [N, T_frame].
+                label_ids=ctc_labels,  # [N, T_text].
+            )
+        )
+
+        dialect_logits = np.asarray(dialect_logits)  # [N, R].
+        region_labels = np.asarray(region_labels).reshape(-1)  # [N] -> [N].
+        if dialect_logits.ndim != 2:
+            raise ValueError("dialect_logits phải có shape [N, R]")
+        if region_labels.shape[0] != dialect_logits.shape[0]:
+            raise ValueError("Số dialect logits và region labels phải bằng nhau")
+
+        predicted_regions = np.argmax(dialect_logits, axis=-1)
+        # [N, R] -> predicted region IDs [N].
+        accuracy = float(np.mean(predicted_regions == region_labels))
+        macro_f1 = _macro_f1(
+            predicted_regions,  # [N].
+            region_labels,  # [N].
+            num_classes=dialect_logits.shape[-1],
+        )
+        asr_metrics.update(
+            {
+                "ctc_loss": float(np.asarray(ctc_losses).mean()),
+                "dialect_loss": float(np.asarray(dialect_losses).mean()),
+                "dialect_accuracy": accuracy,
+                "dialect_macro_f1": macro_f1,
+            }
+        )
+        return asr_metrics
+
+
+def _macro_f1(
+    predictions: np.ndarray,
+    references: np.ndarray,
+    *,
+    num_classes: int,
+) -> float:
+    """Compute unweighted mean F1 over every configured dialect class."""
+    class_scores: list[float] = []
+    for class_id in range(num_classes):
+        predicted_class = predictions == class_id  # [N] -> boolean [N].
+        reference_class = references == class_id  # [N] -> boolean [N].
+        true_positive = int(np.logical_and(predicted_class, reference_class).sum())
+        false_positive = int(
+            np.logical_and(predicted_class, ~reference_class).sum()
+        )
+        false_negative = int(
+            np.logical_and(~predicted_class, reference_class).sum()
+        )
+        denominator = 2 * true_positive + false_positive + false_negative
+        class_scores.append(
+            0.0 if denominator == 0 else (2.0 * true_positive) / denominator
+        )
+    return float(np.mean(class_scores))
+
+
+def build_compute_metrics(
+    processor: Any,
+    regions: Sequence[str],
+    *,
+    multitask: bool = False,
+) -> CTCMetrics:
+    """Build the appropriate metric callable for the selected architecture."""
+    metric_class = MultitaskMetrics if multitask else CTCMetrics
+    return metric_class(processor, regions)

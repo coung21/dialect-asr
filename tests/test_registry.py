@@ -4,6 +4,7 @@ import pytest
 
 from dialect_asr.dggfm_model import DGGFMWav2Vec2CTC
 from dialect_asr.model import BaselineWav2Vec2CTC
+from dialect_asr.multitask_model import MultitaskWav2Vec2CTC
 from dialect_asr.registry import (
     MODEL_REGISTRY,
     architecture_from_checkpoint,
@@ -12,13 +13,15 @@ from dialect_asr.registry import (
 )
 
 
-def test_registry_contains_baseline_and_dggfm() -> None:
+def test_registry_contains_all_project_architectures() -> None:
     assert MODEL_REGISTRY == {
         "baseline": BaselineWav2Vec2CTC,
         "dggfm": DGGFMWav2Vec2CTC,
+        "multitask": MultitaskWav2Vec2CTC,
     }
     assert get_model_class("baseline") is BaselineWav2Vec2CTC
     assert get_model_class("dggfm") is DGGFMWav2Vec2CTC
+    assert get_model_class("multitask") is MultitaskWav2Vec2CTC
 
 
 def test_registry_rejects_unknown_architecture() -> None:
@@ -106,3 +109,42 @@ def test_eval_uses_registered_checkpoint_class(monkeypatch) -> None:
         "source": "checkpoint",
         "kwargs": {"local_files_only": True},
     }
+
+
+def test_build_multitask_model_maps_project_options_to_hf_config(monkeypatch) -> None:
+    pretrained_config = SimpleNamespace()
+    sentinel = object()
+    received: dict[str, object] = {}
+    monkeypatch.setattr(
+        "dialect_asr.registry.Wav2Vec2Config.from_pretrained",
+        lambda *args, **kwargs: pretrained_config,
+    )
+
+    def fake_factory(**kwargs):
+        received.update(kwargs)
+        return sentinel
+
+    monkeypatch.setattr(
+        MultitaskWav2Vec2CTC,
+        "from_vietnamese_pretrained",
+        fake_factory,
+    )
+
+    model = build_project_model(
+        architecture="multitask",
+        source="pretrained",
+        evaluation=False,
+        model_options={
+            "branch_block": 6,
+            "num_regions": 3,
+            "dialect_bottleneck_size": 256,
+            "dialect_loss_weight": 1.0,
+        },
+    )
+
+    assert model is sentinel
+    assert pretrained_config.multitask_branch_block == 6
+    assert pretrained_config.num_regions == 3
+    assert pretrained_config.dialect_bottleneck_size == 256
+    assert pretrained_config.dialect_loss_weight == pytest.approx(1.0)
+    assert received["config"] is pretrained_config
