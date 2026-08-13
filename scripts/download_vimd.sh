@@ -10,6 +10,9 @@ readonly REPO_ID="${VIMD_REPO_ID:-nguyendv02/ViMD_Dataset}"
 readonly REVISION="${VIMD_REVISION:-3a5b30157034e7eadd5c75fae1a820c6f9383398}"
 readonly DESTINATION="${VIMD_DEST:-${PROJECT_ROOT}/data/ViMD_Dataset}"
 readonly MAX_WORKERS="${VIMD_MAX_WORKERS:-4}"
+readonly DOWNLOAD_ATTEMPTS="${VIMD_DOWNLOAD_ATTEMPTS:-5}"
+readonly XET_ATTEMPTS="${VIMD_XET_ATTEMPTS:-2}"
+readonly RETRY_DELAY_SECONDS="${VIMD_RETRY_DELAY_SECONDS:-15}"
 
 readonly EXPECTED_TRAIN_SHARDS=103
 readonly EXPECTED_VALID_SHARDS=13
@@ -27,10 +30,17 @@ Environment overrides:
   VIMD_DEST         Local destination directory.
   VIMD_REVISION     Hugging Face branch/tag/commit (default: pinned commit).
   VIMD_MAX_WORKERS  Concurrent downloads (default: 4).
+  VIMD_DOWNLOAD_ATTEMPTS
+                    Total resumable attempts (default: 5).
+  VIMD_XET_ATTEMPTS Attempts through Xet before HTTP fallback (default: 2).
+  VIMD_RETRY_DELAY_SECONDS
+                    Delay between attempts (default: 15).
   VIMD_REPO_ID      Dataset repository ID.
   HF_TOKEN          Hugging Face token, only when authentication is required.
+  HF_HUB_DISABLE_XET
+                    Set to 1 to use HTTP immediately instead of Xet.
 
-The download is resumable: rerunning the script reuses completed local files.
+The download is resumable: retries and reruns reuse completed local files.
 EOF
 }
 
@@ -101,6 +111,18 @@ if ! [[ "${MAX_WORKERS}" =~ ^[1-9][0-9]*$ ]]; then
     echo "ERROR: VIMD_MAX_WORKERS must be a positive integer." >&2
     exit 2
 fi
+if ! [[ "${DOWNLOAD_ATTEMPTS}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: VIMD_DOWNLOAD_ATTEMPTS must be a positive integer." >&2
+    exit 2
+fi
+if ! [[ "${XET_ATTEMPTS}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: VIMD_XET_ATTEMPTS must be a non-negative integer." >&2
+    exit 2
+fi
+if ! [[ "${RETRY_DELAY_SECONDS}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: VIMD_RETRY_DELAY_SECONDS must be a non-negative integer." >&2
+    exit 2
+fi
 
 cd "${PROJECT_ROOT}"
 mkdir -p "${DESTINATION}"
@@ -120,12 +142,42 @@ echo "Revision:    ${REVISION}"
 echo "Destination: ${DESTINATION}"
 echo "Expected size is approximately 56 GB. Existing files will be reused."
 
-"${downloader[@]}" download "${REPO_ID}" \
-    --repo-type dataset \
-    --revision "${REVISION}" \
-    --include "README.md" \
-    --include "data/*.parquet" \
-    --local-dir "${DESTINATION}" \
-    --max-workers "${MAX_WORKERS}"
+download_dataset() {
+    "${downloader[@]}" download "${REPO_ID}" \
+        --repo-type dataset \
+        --revision "${REVISION}" \
+        --include "README.md" \
+        --include "data/*.parquet" \
+        --local-dir "${DESTINATION}" \
+        --max-workers "${MAX_WORKERS}"
+}
+
+download_complete=false
+for ((attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++)); do
+    if [[ "${HF_HUB_DISABLE_XET:-0}" == "1" || "${attempt}" -gt "${XET_ATTEMPTS}" ]]; then
+        export HF_HUB_DISABLE_XET=1
+        transfer_backend="HTTP (Xet disabled)"
+    else
+        transfer_backend="Xet"
+    fi
+
+    echo "Download attempt ${attempt}/${DOWNLOAD_ATTEMPTS} via ${transfer_backend}."
+    if download_dataset; then
+        download_complete=true
+        break
+    fi
+
+    if [[ "${attempt}" -lt "${DOWNLOAD_ATTEMPTS}" ]]; then
+        echo "WARNING: Download attempt failed; completed files are preserved." >&2
+        echo "Retrying in ${RETRY_DELAY_SECONDS}s..." >&2
+        sleep "${RETRY_DELAY_SECONDS}"
+    fi
+done
+
+if [[ "${download_complete}" != true ]]; then
+    echo "ERROR: ViMD download failed after ${DOWNLOAD_ATTEMPTS} attempts." >&2
+    echo "Rerun the same command to resume the remaining files." >&2
+    exit 1
+fi
 
 validate_dataset
