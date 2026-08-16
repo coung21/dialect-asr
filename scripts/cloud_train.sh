@@ -8,10 +8,16 @@ readonly UV_INSTALL_URL="https://astral.sh/uv/install.sh"
 
 dry_run=false
 wandb_online=true
+declare -a forward_args=()
 for argument in "$@"; do
     case "${argument}" in
-        --dry-run) dry_run=true ;;
-        --offline-wandb|--disable-wandb) wandb_online=false ;;
+        --dry-run) dry_run=true; forward_args+=("${argument}") ;;
+        --offline-wandb|--disable-wandb) wandb_online=false; forward_args+=("${argument}") ;;
+        # Convenience alias: evaluate an existing checkpoint on the cloud
+        # instance without training. Maps to run_experiment.sh's --skip-train
+        # (pair with --eval-checkpoint PATH_OR_REPO; defaults to outputs/NAME/final).
+        --eval-only) forward_args+=("--skip-train") ;;
+        *) forward_args+=("${argument}") ;;
     esac
 done
 
@@ -98,9 +104,10 @@ if [[ "${wandb_online}" == true ]]; then
 fi
 
 # run_experiment handles dataset download, tests, train, one final W&B artifact,
-# and evaluation. Sync is skipped because this bootstrap already completed it.
+# and evaluation (or evaluation only, with --eval-only/--skip-train). Sync is
+# skipped because this bootstrap already completed it.
 if [[ "${dry_run}" == true ]]; then
-    "${SCRIPT_DIR}/run_experiment.sh" --skip-sync "$@"
+    "${SCRIPT_DIR}/run_experiment.sh" --skip-sync "${forward_args[@]}"
 else
-    run_command "${SCRIPT_DIR}/run_experiment.sh" --skip-sync "$@"
+    run_command "${SCRIPT_DIR}/run_experiment.sh" --skip-sync "${forward_args[@]}"
 fi
