@@ -1,17 +1,15 @@
 import os
-from types import SimpleNamespace
 
 import pytest
 import torch
-from transformers import Wav2Vec2Config
+from transformers import WhisperConfig
 
-from dialect_asr.model import BaselineWav2Vec2CTC
+from dialect_asr.model import BaselinePhoWhisperASR
 from dialect_asr.trainer import (
     TrainerConfig,
     build_training_arguments,
     configure_wandb_environment,
     create_trainer,
-    preprocess_logits_for_ctc,
 )
 
 
@@ -37,6 +35,9 @@ def test_build_training_arguments_with_validation(tmp_path) -> None:
     assert arguments.metric_for_best_model == "eval_loss"
     assert arguments.train_batch_size == 3
     assert arguments.gradient_accumulation_steps == 4
+    assert arguments.predict_with_generate
+    assert arguments.generation_max_length == 225
+    assert arguments.generation_num_beams == 1
     assert (tmp_path / "output").is_dir()
 
 
@@ -52,6 +53,7 @@ def test_build_training_arguments_without_validation(tmp_path) -> None:
     assert arguments.eval_strategy.value == "no"
     assert not arguments.load_best_model_at_end
     assert arguments.metric_for_best_model is None
+    assert not arguments.predict_with_generate
 
 
 @pytest.mark.parametrize(
@@ -59,6 +61,8 @@ def test_build_training_arguments_without_validation(tmp_path) -> None:
     [
         ({"learning_rate": 0}, "learning_rate"),
         ({"global_train_batch_size": 0}, "global_train_batch_size"),
+        ({"generation_max_length": 0}, "generation_max_length"),
+        ({"generation_num_beams": 0}, "generation_num_beams"),
         ({"fp16": True, "bf16": True}, "đồng thời"),
         ({"warmup_ratio": -0.1}, "warmup_ratio"),
         ({"warmup_ratio": 1.0}, "warmup_ratio"),
@@ -71,21 +75,6 @@ def test_build_training_arguments_without_validation(tmp_path) -> None:
 def test_trainer_config_rejects_invalid_values(kwargs, message) -> None:
     with pytest.raises(ValueError, match=message):
         TrainerConfig(**kwargs)
-
-
-def test_preprocess_logits_for_ctc_reduces_vocab_dimension() -> None:
-    # logits: [B=2, T_frame=3, V=4].
-    logits = torch.tensor(
-        [
-            [[0.0, 4.0, 1.0, 2.0], [3.0, 1.0, 0.0, 2.0], [0.0, 1.0, 5.0, 2.0]],
-            [[6.0, 4.0, 1.0, 2.0], [3.0, 7.0, 0.0, 2.0], [0.0, 1.0, 2.0, 8.0]],
-        ]
-    )
-
-    token_ids = preprocess_logits_for_ctc(logits)
-
-    assert token_ids.shape == (2, 3)  # [B=2, T_frame=3].
-    assert token_ids.tolist() == [[1, 0, 2], [0, 1, 3]]
 
 
 def test_default_hyperparameters_are_shared_experiment_values(tmp_path) -> None:
@@ -179,7 +168,7 @@ def test_create_trainer_wires_all_components(
         received.update(kwargs)
         return sentinel
 
-    monkeypatch.setattr("dialect_asr.trainer.Trainer", fake_trainer)
+    monkeypatch.setattr("dialect_asr.trainer.Seq2SeqTrainer", fake_trainer)
     model = object()
     processor = object()
     collator = object()
@@ -209,40 +198,47 @@ def test_create_trainer_wires_all_components(
     assert received["train_dataset"] is train_dataset
     assert received["eval_dataset"] is eval_dataset
     assert received["compute_metrics"] is metrics
-    assert received["preprocess_logits_for_metrics"] is preprocess_logits_for_ctc
+
+
+def _tiny_whisper_config() -> WhisperConfig:
+    return WhisperConfig(
+        vocab_size=30,
+        num_mel_bins=10,
+        encoder_layers=1,
+        encoder_attention_heads=2,
+        decoder_layers=1,
+        decoder_attention_heads=2,
+        d_model=16,
+        encoder_ffn_dim=32,
+        decoder_ffn_dim=32,
+        max_source_positions=10,
+        max_target_positions=20,
+        pad_token_id=0,
+        decoder_start_token_id=1,
+        eos_token_id=2,
+        bos_token_id=1,
+    )
 
 
 def test_trainer_runs_one_cpu_optimization_step(tmp_path) -> None:
-    model = BaselineWav2Vec2CTC(
-        Wav2Vec2Config(
-            vocab_size=12,
-            hidden_size=8,
-            num_hidden_layers=1,
-            num_attention_heads=2,
-            intermediate_size=16,
-            conv_dim=(8, 8, 8),
-            conv_stride=(5, 2, 2),
-            conv_kernel=(10, 3, 3),
-            num_conv_pos_embedding_groups=2,
-            num_conv_pos_embeddings=16,
-            pad_token_id=0,
-            ctc_zero_infinity=True,
-            hidden_dropout=0.0,
-            attention_dropout=0.0,
-            feat_proj_dropout=0.0,
-            final_dropout=0.0,
-        )
-    )
-    # Each record: input_values [T_audio=1600], labels [T_text=3].
+    config = _tiny_whisper_config()
+    model = BaselinePhoWhisperASR(config)
+    # Each record: input_features [num_mel_bins=10, T_frame=20], labels [T_text=3].
     dataset = [
-        {"input_values": torch.randn(1_600), "labels": torch.tensor([1, 2, 3])},
-        {"input_values": torch.randn(1_600), "labels": torch.tensor([3, 2, 1])},
+        {
+            "input_features": torch.randn(config.num_mel_bins, config.max_source_positions * 2),
+            "labels": torch.tensor([3, 4, 5]),
+        },
+        {
+            "input_features": torch.randn(config.num_mel_bins, config.max_source_positions * 2),
+            "labels": torch.tensor([5, 4, 3]),
+        },
     ]
 
     def collate(examples):
         return {
-            # Two [T_audio] tensors -> [B=2, T_audio=1600].
-            "input_values": torch.stack([item["input_values"] for item in examples]),
+            # Two [num_mel_bins, T_frame] tensors -> [B=2, num_mel_bins, T_frame].
+            "input_features": torch.stack([item["input_features"] for item in examples]),
             # Two [T_text] tensors -> [B=2, T_text=3].
             "labels": torch.stack([item["labels"] for item in examples]),
         }

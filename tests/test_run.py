@@ -36,33 +36,21 @@ def test_hydra_config_composes_expected_defaults() -> None:
 
     assert cfg.mode == "train"
     assert cfg.data.data_dir == "data/ViMD_Dataset/data"
-    assert cfg.data.region_column == "region"
-    assert cfg.model.pretrained_model_name == (
-        "nguyenvulebinh/wav2vec2-base-vi-vlsp2020"
-    )
+    assert cfg.model.pretrained_model_name == "vinai/PhoWhisper-base"
     assert cfg.model.architecture == "baseline"
+    assert cfg.model.freeze_encoder is True
     assert cfg.trainer.num_train_epochs == 15
     assert cfg.trainer.global_train_batch_size == 8
     assert cfg.trainer.group_by_length is True
     assert cfg.trainer.full_determinism is False
     assert cfg.trainer.wandb_log_model == "end"
+    assert cfg.trainer.generation_max_length == 225
+    assert cfg.trainer.generation_num_beams == 1
     assert OmegaConf.to_container(cfg.trainer.wandb_tags) == [
         "vimd",
-        "wav2vec2",
+        "phowhisper",
         "baseline",
     ]
-
-
-def test_dggfm_experiment_composes_model_and_run_settings() -> None:
-    cfg = compose_config("experiment=dggfm")
-
-    assert cfg.model.architecture == "dggfm"
-    assert cfg.model.branch_block == 6
-    assert OmegaConf.to_container(cfg.model.fusion_blocks) == [6, 8, 10, 12]
-    assert cfg.model.dialect_dim == 64
-    assert cfg.model.dialect_loss_weight == pytest.approx(0.1)
-    assert cfg.trainer.output_dir == "outputs/dggfm"
-    assert cfg.trainer.wandb_group == "dggfm"
 
 
 def test_eval_mode_requires_checkpoint() -> None:
