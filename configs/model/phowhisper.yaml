@@ -1,6 +1,5 @@
 architecture: baseline
-pretrained_model_name: nguyenvulebinh/wav2vec2-base-vi-vlsp2020
-freeze_feature_encoder: true
-freeze_base_model: false
+pretrained_model_name: vinai/PhoWhisper-base
+freeze_encoder: true
 gradient_checkpointing: false
 local_files_only: false

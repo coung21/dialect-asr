@@ -1,6 +1,6 @@
 defaults:
   - data: vimd
-  - model: wav2vec2_vi
+  - model: phowhisper
   - trainer: default
   - optional experiment: null
   - _self_

@@ -16,31 +16,13 @@ from dialect_asr.text import normalize_vietnamese_text
 VIMD_COLUMNS = {
     "audio",
     "text",
-    "region",       
+    "region",
     "province_code",
     "province_name",
     "filename",
     "speakerID",
     "gender",
 }
-
-REGION_TO_LABEL = {
-    "north": 0,
-    "central": 1,
-    "south": 2,
-}
-
-
-def region_to_label(region: str) -> int:
-    """Map a ViMD region name to the class ID consumed by DGGFM."""
-    normalized_region = str(region).strip().lower()
-    try:
-        return REGION_TO_LABEL[normalized_region]
-    except KeyError as exc:
-        expected = ", ".join(REGION_TO_LABEL)
-        raise ValueError(
-            f"Region không hợp lệ {region!r}; cần một trong: {expected}"
-        ) from exc
 
 
 def _split_files(data_dir: str | Path) -> dict[str, str]:
@@ -101,21 +83,20 @@ def prepare_example(
     processor: Any,
     audio_column: str = "audio",
     text_column: str = "text",
-    region_column: str = "region",
 ) -> dict[str, Any]:
-    """Convert one ViMD record into audio, CTC and region model inputs."""
+    """Convert one ViMD record into log-mel features and CTC-free text labels."""
     audio_array, sampling_rate = _decoded_audio(example[audio_column])
-    # audio_array: [T_audio] -> processor batch output: [1, T_audio].
+    # audio_array: [T_audio] -> processor batch output: [1, num_mel_bins, T_frame].
     audio_output = processor(audio_array, sampling_rate=sampling_rate)
     normalized_text = normalize_vietnamese_text(str(example[text_column]))
     # One normalized transcript -> token IDs with shape [T_text].
     text_output = processor(text=normalized_text)
 
     return {
-        # [1, T_audio] -> [T_audio]; collator restores the batch dimension.
-        "input_values": audio_output.input_values[0],
+        # [1, num_mel_bins, T_frame] -> [num_mel_bins, T_frame]; collator restores
+        # the batch dimension.
+        "input_features": audio_output.input_features[0],
         "labels": text_output.input_ids,  # [T_text].
-        "region_labels": region_to_label(example[region_column]),  # Scalar class ID [].
     }
 
 
@@ -124,7 +105,6 @@ def prepare_dataset(
     processor: Any,
     audio_column: str = "audio",
     text_column: str = "text",
-    region_column: str = "region",
     num_proc: int | None = None,
 ) -> Any:
     """Preprocess every split while retaining transcript and dialect metadata."""
@@ -135,7 +115,6 @@ def prepare_dataset(
             processor,
             audio_column,
             text_column,
-            region_column,
         )
 
     return dataset.map(
@@ -147,12 +126,10 @@ def prepare_dataset(
 
 
 @dataclass(slots=True)
-class DataCollatorCTCWithPadding:
-    """Dynamically pad variable-length audio and labels for CTC training."""
+class DataCollatorSpeechSeq2SeqWithPadding:
+    """Stack fixed-length log-mel features and dynamically pad text labels."""
 
     processor: Any
-    padding: bool | str = True
-    pad_to_multiple_of: int | None = None
     pad_to_multiple_of_labels: int | None = None
 
     def __call__(self, examples: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
@@ -160,51 +137,37 @@ class DataCollatorCTCWithPadding:
             raise ValueError("Không thể collate một batch rỗng")
 
         audio_features = [
-            # Each item remains [T_audio_i] before dynamic padding.
-            {"input_values": example["input_values"]} for example in examples
+            # Each item is already [num_mel_bins, T_frame]; the feature extractor
+            # pads/truncates every example to the same fixed length.
+            {"input_features": example["input_features"]} for example in examples
         ]
         # Each label item has variable shape [T_text_i].
         label_features = [{"input_ids": example["labels"]} for example in examples]
 
-        # [T_audio_i] -> input_values [B, T_audio_max].
-        # The optional attention_mask has shape [B, T_audio_max].
-        batch = self.processor.pad(
+        # [num_mel_bins, T_frame] -> input_features [B, num_mel_bins, T_frame].
+        batch = self.processor.feature_extractor.pad(
             audio_features,
-            padding=self.padding,
-            pad_to_multiple_of=self.pad_to_multiple_of,
             return_tensors="pt",
         )
 
-        try:
-            # [T_text_i] -> input_ids/attention_mask [B, T_text_max].
-            label_batch = self.processor.pad(
-                labels=label_features,
-                padding=self.padding,
-                pad_to_multiple_of=self.pad_to_multiple_of_labels,
-                return_tensors="pt",
-            )
-        except TypeError:
-            # Compatibility with processors that delegate text padding to tokenizer.
-            # [T_text_i] -> input_ids/attention_mask [B, T_text_max].
-            label_batch = self.processor.tokenizer.pad(
-                label_features,
-                padding=self.padding,
-                pad_to_multiple_of=self.pad_to_multiple_of_labels,
-                return_tensors="pt",
-            )
-
-        # Both operands are [B, T_text_max]; output labels keep that shape.
-        # Padding IDs become -100 so Wav2Vec2ForCTC ignores those positions.
-        batch["labels"] = label_batch["input_ids"].masked_fill(
-            label_batch["attention_mask"].ne(1), -100
+        # [T_text_i] -> input_ids/attention_mask [B, T_text_max].
+        label_batch = self.processor.tokenizer.pad(
+            label_features,
+            pad_to_multiple_of=self.pad_to_multiple_of_labels,
+            return_tensors="pt",
         )
 
-        has_region_labels = ["region_labels" in example for example in examples]
-        if any(has_region_labels) and not all(has_region_labels):
-            raise ValueError("Mọi example trong batch phải cùng có region_labels")
-        if all(has_region_labels):
-            batch["region_labels"] = torch.tensor(
-                [example["region_labels"] for example in examples],
-                dtype=torch.long,
-            )  # B scalar region IDs [] -> region labels [B].
+        # Padding IDs become -100 so the CrossEntropyLoss ignores those positions.
+        labels = label_batch["input_ids"].masked_fill(
+            label_batch["attention_mask"].ne(1), -100
+        )
+        # ``forward`` derives decoder_input_ids from labels by right-shifting and
+        # prepending decoder_start_token_id. If the tokenizer already prefixed
+        # every example with that same token (bos == decoder_start for Whisper),
+        # drop it here so it is not duplicated after the shift.
+        bos_token_id = self.processor.tokenizer.bos_token_id
+        if bos_token_id is not None and (labels[:, 0] == bos_token_id).all():
+            labels = labels[:, 1:]
+        batch["labels"] = labels
+
         return batch

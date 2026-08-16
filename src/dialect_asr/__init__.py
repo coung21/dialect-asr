@@ -1,21 +1,18 @@
 """Dialect-aware Vietnamese speech recognition."""
 
-from .base_model import AbstractWav2Vec2CTC
+from .base_model import AbstractPhoWhisperASR
 from .data import (
-    DataCollatorCTCWithPadding,
+    DataCollatorSpeechSeq2SeqWithPadding,
     load_vimd,
     prepare_dataset,
     prepare_example,
-    region_to_label,
 )
-from .dggfm_model import DGGFMCTCOutput, DGGFMWav2Vec2CTC
-from .evaluation import CTCMetrics, build_compute_metrics, compute_asr_metrics
+from .evaluation import Seq2SeqMetrics, build_compute_metrics, compute_asr_metrics
 from .model import (
     DEFAULT_PRETRAINED_MODEL,
-    BaselineWav2Vec2CTC,
+    BaselinePhoWhisperASR,
     load_vietnamese_processor,
 )
-from .modules import DGGFM, DialectBranch, SoftDialectEmbedding
 from .reproducibility import (
     DEFAULT_SEED,
     seed_data_worker,
@@ -33,27 +30,20 @@ from .trainer import (
     build_training_arguments,
     configure_wandb_environment,
     create_trainer,
-    preprocess_logits_for_ctc,
 )
 
 __all__ = [
-    "AbstractWav2Vec2CTC",
-    "DataCollatorCTCWithPadding",
-    "DGGFMCTCOutput",
-    "DGGFMWav2Vec2CTC",
+    "AbstractPhoWhisperASR",
+    "DataCollatorSpeechSeq2SeqWithPadding",
     "load_vimd",
     "prepare_dataset",
     "prepare_example",
-    "region_to_label",
-    "CTCMetrics",
+    "Seq2SeqMetrics",
     "build_compute_metrics",
     "compute_asr_metrics",
     "DEFAULT_PRETRAINED_MODEL",
-    "BaselineWav2Vec2CTC",
+    "BaselinePhoWhisperASR",
     "load_vietnamese_processor",
-    "DialectBranch",
-    "DGGFM",
-    "SoftDialectEmbedding",
     "DEFAULT_SEED",
     "seed_data_worker",
     "seed_everything",
@@ -66,5 +56,4 @@ __all__ = [
     "build_training_arguments",
     "configure_wandb_environment",
     "create_trainer",
-    "preprocess_logits_for_ctc",
 ]

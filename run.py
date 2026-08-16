@@ -12,8 +12,8 @@ from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, OmegaConf
 
 from dialect_asr import (
-    AbstractWav2Vec2CTC,
-    DataCollatorCTCWithPadding,
+    AbstractPhoWhisperASR,
+    DataCollatorSpeechSeq2SeqWithPadding,
     TrainerConfig,
     architecture_from_checkpoint,
     build_compute_metrics,
@@ -116,7 +116,7 @@ def _load_model(
     cfg: DictConfig,
     trainer_config: TrainerConfig,
     checkpoint: str | None,
-) -> AbstractWav2Vec2CTC:
+) -> AbstractPhoWhisperASR:
     evaluation = cfg.mode == "eval"
     architecture = str(cfg.model.architecture)
     source = str(cfg.model.pretrained_model_name)
@@ -138,8 +138,7 @@ def _load_model(
         source=source,
         evaluation=evaluation,
         model_options=model_options,
-        freeze_feature_encoder=bool(cfg.model.freeze_feature_encoder),
-        freeze_base_model=bool(cfg.model.freeze_base_model),
+        freeze_encoder=bool(cfg.model.freeze_encoder),
         gradient_checkpointing=bool(cfg.model.gradient_checkpointing),
         seed=trainer_config.seed,
         full_determinism=trainer_config.full_determinism,
@@ -179,10 +178,9 @@ def run(cfg: DictConfig) -> None:
         processor,
         audio_column=str(cfg.data.audio_column),
         text_column=str(cfg.data.text_column),
-        region_column=str(cfg.data.region_column),
         num_proc=cfg.data.num_proc,
     )
-    data_collator = DataCollatorCTCWithPadding(processor=processor)
+    data_collator = DataCollatorSpeechSeq2SeqWithPadding(processor=processor)
 
     metric_split = "validation" if cfg.mode == "train" else str(cfg.split)
     compute_metrics = build_compute_metrics(

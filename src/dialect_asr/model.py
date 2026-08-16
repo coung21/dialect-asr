@@ -1,28 +1,26 @@
-"""Baseline Wav2Vec2 CTC model and Vietnamese processor loading."""
+"""Baseline PhoWhisper seq2seq model and Vietnamese processor loading."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from transformers import Wav2Vec2Processor
+from transformers import WhisperProcessor
 
-from .base_model import AbstractWav2Vec2CTC, DEFAULT_PRETRAINED_MODEL
+from .base_model import AbstractPhoWhisperASR, DEFAULT_PRETRAINED_MODEL
 
 
-class BaselineWav2Vec2CTC(AbstractWav2Vec2CTC):
-    """Wav2Vec2 CTC baseline that remains compatible with HF ``Trainer``.
+class BaselinePhoWhisperASR(AbstractPhoWhisperASR):
+    """PhoWhisper seq2seq baseline that remains compatible with HF ``Seq2SeqTrainer``.
 
     Shape contract of the inherited ``forward`` method:
 
-    - ``input_values``: ``[B, T_audio]``.
-    - ``attention_mask``: ``[B, T_audio]`` (optional).
+    - ``input_features``: ``[B, num_mel_bins, T_frame]`` (log-mel spectrogram).
     - ``labels``: ``[B, T_text]`` with padding positions equal to ``-100``.
-    - ``output.logits``: ``[B, T_frame, V]``.
+    - ``output.logits``: ``[B, T_text, V]``.
     - ``output.loss``: scalar tensor ``[]`` when labels are provided.
 
-    ``T_frame`` is shorter than ``T_audio`` because the convolutional feature
-    encoder downsamples the waveform. ``V`` is the CTC vocabulary size (98 for
-    the default Vietnamese checkpoint).
+    ``T_frame`` is fixed by the feature extractor (30s of audio by default).
+    ``V`` is the decoder vocabulary size.
     """
 
     @classmethod
@@ -34,13 +32,9 @@ class BaselineWav2Vec2CTC(AbstractWav2Vec2CTC):
 def load_vietnamese_processor(
     pretrained_model_name: str = DEFAULT_PRETRAINED_MODEL,
     **from_pretrained_kwargs: Any,
-) -> Wav2Vec2Processor:
-    """Load feature extractor and tokenizer without the optional n-gram LM.
-
-    Fine-tuning and greedy CTC decoding do not require ``pyctcdecode`` or the
-    large language-model files included in the checkpoint repository.
-    """
-    return Wav2Vec2Processor.from_pretrained(
+) -> WhisperProcessor:
+    """Load the feature extractor and tokenizer for Vietnamese transcription."""
+    return WhisperProcessor.from_pretrained(
         pretrained_model_name,
         **from_pretrained_kwargs,
     )

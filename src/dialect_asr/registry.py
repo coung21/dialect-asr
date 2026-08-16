@@ -5,32 +5,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from transformers import Wav2Vec2Config
+from transformers import WhisperConfig
 
-from .base_model import AbstractWav2Vec2CTC
-from .dggfm_model import DGGFMWav2Vec2CTC
-from .model import BaselineWav2Vec2CTC
+from .base_model import AbstractPhoWhisperASR
+from .model import BaselinePhoWhisperASR
 
 
-MODEL_REGISTRY: dict[str, type[AbstractWav2Vec2CTC]] = {
-    BaselineWav2Vec2CTC.architecture_name(): BaselineWav2Vec2CTC,
-    DGGFMWav2Vec2CTC.architecture_name(): DGGFMWav2Vec2CTC,
-}
-
-DGGFM_CONFIG_MAPPING = {
-    "branch_block": "dggfm_branch_block",
-    "fusion_blocks": "dggfm_fusion_blocks",
-    "num_regions": "num_regions",
-    "dialect_bottleneck_size": "dialect_bottleneck_size",
-    "dialect_dim": "dialect_dim",
-    "gate_hidden_dim": "dggfm_gate_hidden_dim",
-    "temperature": "dialect_temperature",
-    "dialect_loss_weight": "dialect_loss_weight",
-    "dialect_dropout": "dialect_dropout",
+MODEL_REGISTRY: dict[str, type[AbstractPhoWhisperASR]] = {
+    BaselinePhoWhisperASR.architecture_name(): BaselinePhoWhisperASR,
 }
 
 
-def get_model_class(architecture: str) -> type[AbstractWav2Vec2CTC]:
+def get_model_class(architecture: str) -> type[AbstractPhoWhisperASR]:
     """Return the model class registered for an architecture name."""
     try:
         return MODEL_REGISTRY[architecture]
@@ -48,7 +34,7 @@ def architecture_from_checkpoint(
     local_files_only: bool = False,
 ) -> str:
     """Read the saved project architecture, falling back for old baselines."""
-    config = Wav2Vec2Config.from_pretrained(
+    config = WhisperConfig.from_pretrained(
         checkpoint,
         local_files_only=local_files_only,
     )
@@ -63,14 +49,14 @@ def build_project_model(
     source: str,
     evaluation: bool,
     model_options: Mapping[str, Any],
-    freeze_feature_encoder: bool = True,
-    freeze_base_model: bool = False,
+    freeze_encoder: bool = True,
     gradient_checkpointing: bool = False,
     seed: int = 42,
     full_determinism: bool = False,
     local_files_only: bool = False,
-) -> AbstractWav2Vec2CTC:
+) -> AbstractPhoWhisperASR:
     """Load either a final checkpoint or pretrained initialization."""
+    del model_options  # Reserved for future architecture-specific config.
     model_class = get_model_class(architecture)
     if evaluation:
         return model_class.from_pretrained(
@@ -78,24 +64,11 @@ def build_project_model(
             local_files_only=local_files_only,
         )
 
-    pretrained_kwargs: dict[str, Any] = {}
-    if architecture == DGGFMWav2Vec2CTC.architecture_name():
-        pretrained_config = Wav2Vec2Config.from_pretrained(
-            source,
-            local_files_only=local_files_only,
-        )
-        for option_name, config_name in DGGFM_CONFIG_MAPPING.items():
-            if option_name in model_options:
-                setattr(pretrained_config, config_name, model_options[option_name])
-        pretrained_kwargs["config"] = pretrained_config
-
     return model_class.from_vietnamese_pretrained(
         pretrained_model_name=source,
-        freeze_feature_encoder=freeze_feature_encoder,
-        freeze_base_model=freeze_base_model,
+        freeze_encoder=freeze_encoder,
         gradient_checkpointing=gradient_checkpointing,
         seed=seed,
         full_determinism=full_determinism,
         local_files_only=local_files_only,
-        **pretrained_kwargs,
     )
