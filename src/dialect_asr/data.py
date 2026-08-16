@@ -16,7 +16,7 @@ from dialect_asr.text import normalize_vietnamese_text
 VIMD_COLUMNS = {
     "audio",
     "text",
-    "region",       
+    "region",
     "province_code",
     "province_name",
     "filename",
@@ -84,17 +84,18 @@ def prepare_example(
     audio_column: str = "audio",
     text_column: str = "text",
 ) -> dict[str, Any]:
-    """Convert one record to ``input_values[T_audio]`` and ``labels[T_text]``."""
+    """Convert one ViMD record into log-mel features and CTC-free text labels."""
     audio_array, sampling_rate = _decoded_audio(example[audio_column])
-    # audio_array: [T_audio] -> processor batch output: [1, T_audio].
+    # audio_array: [T_audio] -> processor batch output: [1, num_mel_bins, T_frame].
     audio_output = processor(audio_array, sampling_rate=sampling_rate)
     normalized_text = normalize_vietnamese_text(str(example[text_column]))
     # One normalized transcript -> token IDs with shape [T_text].
     text_output = processor(text=normalized_text)
 
     return {
-        # [1, T_audio] -> [T_audio]; collator restores the batch dimension.
-        "input_values": audio_output.input_values[0],
+        # [1, num_mel_bins, T_frame] -> [num_mel_bins, T_frame]; collator restores
+        # the batch dimension.
+        "input_features": audio_output.input_features[0],
         "labels": text_output.input_ids,  # [T_text].
     }
 
@@ -109,7 +110,12 @@ def prepare_dataset(
     """Preprocess every split while retaining transcript and dialect metadata."""
 
     def preprocess(example: dict[str, Any]) -> dict[str, Any]:
-        return prepare_example(example, processor, audio_column, text_column)
+        return prepare_example(
+            example,
+            processor,
+            audio_column,
+            text_column,
+        )
 
     return dataset.map(
         preprocess,
@@ -120,12 +126,10 @@ def prepare_dataset(
 
 
 @dataclass(slots=True)
-class DataCollatorCTCWithPadding:
-    """Dynamically pad variable-length audio and labels for CTC training."""
+class DataCollatorSpeechSeq2SeqWithPadding:
+    """Stack fixed-length log-mel features and dynamically pad text labels."""
 
     processor: Any
-    padding: bool | str = True
-    pad_to_multiple_of: int | None = None
     pad_to_multiple_of_labels: int | None = None
 
     def __call__(self, examples: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
@@ -133,42 +137,37 @@ class DataCollatorCTCWithPadding:
             raise ValueError("Không thể collate một batch rỗng")
 
         audio_features = [
-            # Each item remains [T_audio_i] before dynamic padding.
-            {"input_values": example["input_values"]} for example in examples
+            # Each item is already [num_mel_bins, T_frame]; the feature extractor
+            # pads/truncates every example to the same fixed length.
+            {"input_features": example["input_features"]} for example in examples
         ]
         # Each label item has variable shape [T_text_i].
         label_features = [{"input_ids": example["labels"]} for example in examples]
 
-        # [T_audio_i] -> input_values [B, T_audio_max].
-        # The optional attention_mask has shape [B, T_audio_max].
-        batch = self.processor.pad(
+        # [num_mel_bins, T_frame] -> input_features [B, num_mel_bins, T_frame].
+        batch = self.processor.feature_extractor.pad(
             audio_features,
-            padding=self.padding,
-            pad_to_multiple_of=self.pad_to_multiple_of,
             return_tensors="pt",
         )
 
-        try:
-            # [T_text_i] -> input_ids/attention_mask [B, T_text_max].
-            label_batch = self.processor.pad(
-                labels=label_features,
-                padding=self.padding,
-                pad_to_multiple_of=self.pad_to_multiple_of_labels,
-                return_tensors="pt",
-            )
-        except TypeError:
-            # Compatibility with processors that delegate text padding to tokenizer.
-            # [T_text_i] -> input_ids/attention_mask [B, T_text_max].
-            label_batch = self.processor.tokenizer.pad(
-                label_features,
-                padding=self.padding,
-                pad_to_multiple_of=self.pad_to_multiple_of_labels,
-                return_tensors="pt",
-            )
+        # [T_text_i] -> input_ids/attention_mask [B, T_text_max].
+        label_batch = self.processor.tokenizer.pad(
+            label_features,
+            pad_to_multiple_of=self.pad_to_multiple_of_labels,
+            return_tensors="pt",
+        )
 
-        # Both operands are [B, T_text_max]; output labels keep that shape.
-        # Padding IDs become -100 so Wav2Vec2ForCTC ignores those positions.
-        batch["labels"] = label_batch["input_ids"].masked_fill(
+        # Padding IDs become -100 so the CrossEntropyLoss ignores those positions.
+        labels = label_batch["input_ids"].masked_fill(
             label_batch["attention_mask"].ne(1), -100
         )
+        # ``forward`` derives decoder_input_ids from labels by right-shifting and
+        # prepending decoder_start_token_id. If the tokenizer already prefixed
+        # every example with that same token (bos == decoder_start for Whisper),
+        # drop it here so it is not duplicated after the shift.
+        bos_token_id = self.processor.tokenizer.bos_token_id
+        if bos_token_id is not None and (labels[:, 0] == bos_token_id).all():
+            labels = labels[:, 1:]
+        batch["labels"] = labels
+
         return batch

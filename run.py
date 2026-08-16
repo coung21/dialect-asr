@@ -12,10 +12,12 @@ from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, OmegaConf
 
 from dialect_asr import (
-    BaselineWav2Vec2CTC,
-    DataCollatorCTCWithPadding,
+    AbstractPhoWhisperASR,
+    DataCollatorSpeechSeq2SeqWithPadding,
     TrainerConfig,
+    architecture_from_checkpoint,
     build_compute_metrics,
+    build_project_model,
     create_trainer,
     load_vietnamese_processor,
     load_vimd,
@@ -114,21 +116,29 @@ def _load_model(
     cfg: DictConfig,
     trainer_config: TrainerConfig,
     checkpoint: str | None,
-) -> BaselineWav2Vec2CTC:
-    if cfg.mode == "eval":
-        seed_everything(
-            trainer_config.seed,
-            deterministic=trainer_config.full_determinism,
-        )
-        return BaselineWav2Vec2CTC.from_pretrained(
-            checkpoint,
+) -> AbstractPhoWhisperASR:
+    evaluation = cfg.mode == "eval"
+    architecture = str(cfg.model.architecture)
+    source = str(cfg.model.pretrained_model_name)
+    if evaluation:
+        if checkpoint is None:
+            raise ValueError("Eval yêu cầu checkpoint")
+        source = checkpoint
+        architecture = architecture_from_checkpoint(
+            source,
+            fallback=architecture,
             local_files_only=bool(cfg.model.local_files_only),
         )
 
-    return BaselineWav2Vec2CTC.from_vietnamese_pretrained(
-        pretrained_model_name=str(cfg.model.pretrained_model_name),
-        freeze_feature_encoder=bool(cfg.model.freeze_feature_encoder),
-        freeze_base_model=bool(cfg.model.freeze_base_model),
+    model_options = OmegaConf.to_container(cfg.model, resolve=True)
+    if not isinstance(model_options, dict):
+        raise TypeError("model config phải là một mapping")
+    return build_project_model(
+        architecture=architecture,
+        source=source,
+        evaluation=evaluation,
+        model_options=model_options,
+        freeze_encoder=bool(cfg.model.freeze_encoder),
         gradient_checkpointing=bool(cfg.model.gradient_checkpointing),
         seed=trainer_config.seed,
         full_determinism=trainer_config.full_determinism,
@@ -170,7 +180,7 @@ def run(cfg: DictConfig) -> None:
         text_column=str(cfg.data.text_column),
         num_proc=cfg.data.num_proc,
     )
-    data_collator = DataCollatorCTCWithPadding(processor=processor)
+    data_collator = DataCollatorSpeechSeq2SeqWithPadding(processor=processor)
 
     metric_split = "validation" if cfg.mode == "train" else str(cfg.split)
     compute_metrics = build_compute_metrics(

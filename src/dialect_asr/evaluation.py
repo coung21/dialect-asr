@@ -1,4 +1,4 @@
-"""CTC decoding and regional ASR metrics for ViMD."""
+"""Seq2seq decoding and regional ASR metrics for ViMD."""
 
 from __future__ import annotations
 
@@ -70,8 +70,8 @@ def compute_asr_metrics(
     return metrics
 
 
-class CTCMetrics:
-    """Callable metric adapter for Hugging Face Trainer predictions."""
+class Seq2SeqMetrics:
+    """Callable metric adapter for Hugging Face ``Seq2SeqTrainer`` predictions."""
 
     def __init__(self, processor: Any, regions: Sequence[str]) -> None:
         self.processor = processor
@@ -82,17 +82,14 @@ class CTCMetrics:
         self.regions = tuple(regions)
 
     def __call__(self, prediction: EvalPrediction) -> dict[str, float]:
+        # With predict_with_generate=True these are already generated token IDs,
+        # not logits, so no argmax reduction is needed before decoding.
         predicted_ids = prediction.predictions
         if isinstance(predicted_ids, tuple):
             predicted_ids = predicted_ids[0]
         predicted_ids = np.asarray(predicted_ids)
-        if predicted_ids.ndim == 3:
-            # [N, T_frame, V] -> [N, T_frame] for callers without preprocessing.
-            predicted_ids = np.argmax(predicted_ids, axis=-1)
         if predicted_ids.ndim != 2:
-            raise ValueError(
-                "predictions phải có shape [N, T_frame] hoặc [N, T_frame, V]"
-            )
+            raise ValueError("predictions phải có shape [N, T_generated]")
 
         label_ids = prediction.label_ids
         if isinstance(label_ids, tuple):
@@ -107,12 +104,15 @@ class CTCMetrics:
         # [N, T_text] mask replacement keeps shape [N, T_text].
         label_ids[label_ids == -100] = pad_token_id
 
-        # [N, T_frame] -> N decoded prediction strings; CTC repeats are grouped.
-        decoded_predictions = self.processor.batch_decode(predicted_ids)
-        # [N, T_text] -> N reference strings; target repeats must be preserved.
-        decoded_references = self.processor.batch_decode(
+        # [N, T_generated] -> N decoded prediction strings.
+        decoded_predictions = self.processor.tokenizer.batch_decode(
+            predicted_ids,
+            skip_special_tokens=True,
+        )
+        # [N, T_text] -> N reference strings.
+        decoded_references = self.processor.tokenizer.batch_decode(
             label_ids,
-            group_tokens=False,
+            skip_special_tokens=True,
         )
 
         if len(decoded_predictions) != len(self.regions):
@@ -127,6 +127,6 @@ class CTCMetrics:
         )
 
 
-def build_compute_metrics(processor: Any, regions: Sequence[str]) -> CTCMetrics:
+def build_compute_metrics(processor: Any, regions: Sequence[str]) -> Seq2SeqMetrics:
     """Build the metric callable passed to ``create_trainer``."""
-    return CTCMetrics(processor, regions)
+    return Seq2SeqMetrics(processor, regions)
