@@ -1,5 +1,5 @@
 # Shared hyperparameters for baseline and future fusion experiments.
-output_dir: outputs/wav2vec2-baseline
+output_dir: outputs/phowhisper-baseline
 
 num_train_epochs: 15
 learning_rate: 1.0e-4
@@ -19,23 +19,26 @@ dataloader_num_workers: 4
 group_by_length: true
 length_column_name: length
 seed: 42
-# Must remain false on CUDA: ctc_loss_backward_gpu is non-deterministic.
+# Must remain false on CUDA: full determinism is not guaranteed for every kernel.
 full_determinism: false
 
 fp16: false
 bf16: false
 tf32: null
 gradient_checkpointing: false
+# Greedy decoding by default; raise for beam search at eval-time cost.
+generation_max_length: 225
+generation_num_beams: 1
 metric_for_best_model: eval_loss
 greater_is_better: false
 report_to: wandb
-run_name: wav2vec2-baseline
+run_name: phowhisper-baseline
 
 # W&B experiment tracking. API keys must come from `wandb login` or WANDB_API_KEY.
 wandb_project: dialect-asr
 wandb_entity: null
 wandb_group: baseline
-wandb_tags: [vimd, wav2vec2, baseline]
+wandb_tags: [vimd, phowhisper, baseline]
 wandb_mode: online       # online | offline | disabled
 wandb_log_model: "end"   # Upload exactly one final artifact after training.
 wandb_watch: "false"     # false | gradients | all

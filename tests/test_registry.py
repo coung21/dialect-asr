@@ -2,8 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dialect_asr.dggfm_model import DGGFMWav2Vec2CTC
-from dialect_asr.model import BaselineWav2Vec2CTC
+from dialect_asr.model import BaselinePhoWhisperASR
 from dialect_asr.registry import (
     MODEL_REGISTRY,
     architecture_from_checkpoint,
@@ -12,13 +11,9 @@ from dialect_asr.registry import (
 )
 
 
-def test_registry_contains_baseline_and_dggfm() -> None:
-    assert MODEL_REGISTRY == {
-        "baseline": BaselineWav2Vec2CTC,
-        "dggfm": DGGFMWav2Vec2CTC,
-    }
-    assert get_model_class("baseline") is BaselineWav2Vec2CTC
-    assert get_model_class("dggfm") is DGGFMWav2Vec2CTC
+def test_registry_contains_baseline() -> None:
+    assert MODEL_REGISTRY == {"baseline": BaselinePhoWhisperASR}
+    assert get_model_class("baseline") is BaselinePhoWhisperASR
 
 
 def test_registry_rejects_unknown_architecture() -> None:
@@ -28,59 +23,67 @@ def test_registry_rejects_unknown_architecture() -> None:
 
 def test_architecture_is_read_from_checkpoint_config(monkeypatch) -> None:
     monkeypatch.setattr(
-        "dialect_asr.registry.Wav2Vec2Config.from_pretrained",
-        lambda *args, **kwargs: SimpleNamespace(architecture="dggfm"),
+        "dialect_asr.registry.WhisperConfig.from_pretrained",
+        lambda *args, **kwargs: SimpleNamespace(architecture="baseline"),
     )
 
-    assert architecture_from_checkpoint("checkpoint") == "dggfm"
+    assert architecture_from_checkpoint("checkpoint") == "baseline"
 
 
 def test_old_checkpoint_without_architecture_uses_fallback(monkeypatch) -> None:
     monkeypatch.setattr(
-        "dialect_asr.registry.Wav2Vec2Config.from_pretrained",
+        "dialect_asr.registry.WhisperConfig.from_pretrained",
         lambda *args, **kwargs: SimpleNamespace(),
     )
 
     assert architecture_from_checkpoint("checkpoint", fallback="baseline") == "baseline"
 
 
-def test_build_dggfm_model_maps_project_options_to_hf_config(monkeypatch) -> None:
-    pretrained_config = SimpleNamespace()
+def test_architecture_from_checkpoint_rejects_unknown_architecture(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "dialect_asr.registry.WhisperConfig.from_pretrained",
+        lambda *args, **kwargs: SimpleNamespace(architecture="unknown"),
+    )
+
+    with pytest.raises(ValueError, match="Architecture không hợp lệ"):
+        architecture_from_checkpoint("checkpoint")
+
+
+def test_build_train_model_uses_vietnamese_pretrained_factory(monkeypatch) -> None:
     sentinel = object()
     received: dict[str, object] = {}
-    monkeypatch.setattr(
-        "dialect_asr.registry.Wav2Vec2Config.from_pretrained",
-        lambda *args, **kwargs: pretrained_config,
-    )
 
     def fake_factory(**kwargs):
         received.update(kwargs)
         return sentinel
 
     monkeypatch.setattr(
-        DGGFMWav2Vec2CTC,
+        BaselinePhoWhisperASR,
         "from_vietnamese_pretrained",
         fake_factory,
     )
 
     model = build_project_model(
-        architecture="dggfm",
+        architecture="baseline",
         source="pretrained",
         evaluation=False,
-        model_options={
-            "branch_block": 6,
-            "fusion_blocks": [6, 8, 10, 12],
-            "dialect_dim": 64,
-            "gate_hidden_dim": 256,
-        },
+        model_options={},
+        freeze_encoder=False,
+        gradient_checkpointing=True,
+        seed=7,
+        full_determinism=True,
+        local_files_only=True,
     )
 
     assert model is sentinel
-    assert pretrained_config.dggfm_branch_block == 6
-    assert pretrained_config.dggfm_fusion_blocks == [6, 8, 10, 12]
-    assert pretrained_config.dialect_dim == 64
-    assert pretrained_config.dggfm_gate_hidden_dim == 256
-    assert received["config"] is pretrained_config
+    assert received == {
+        "pretrained_model_name": "pretrained",
+        "freeze_encoder": False,
+        "gradient_checkpointing": True,
+        "seed": 7,
+        "full_determinism": True,
+        "local_files_only": True,
+    }
 
 
 def test_eval_uses_registered_checkpoint_class(monkeypatch) -> None:
@@ -91,10 +94,10 @@ def test_eval_uses_registered_checkpoint_class(monkeypatch) -> None:
         received.update(source=source, kwargs=kwargs)
         return sentinel
 
-    monkeypatch.setattr(DGGFMWav2Vec2CTC, "from_pretrained", fake_from_pretrained)
+    monkeypatch.setattr(BaselinePhoWhisperASR, "from_pretrained", fake_from_pretrained)
 
     model = build_project_model(
-        architecture="dggfm",
+        architecture="baseline",
         source="checkpoint",
         evaluation=True,
         model_options={},
