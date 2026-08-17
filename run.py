@@ -10,6 +10,7 @@ from datasets import DatasetDict
 import hydra
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, OmegaConf
+import wandb
 
 from dialect_asr import (
     AbstractPhoWhisperASR,
@@ -22,6 +23,7 @@ from dialect_asr import (
     load_vietnamese_processor,
     load_vimd,
     prepare_dataset,
+    reports_to_wandb,
     seed_everything,
 )
 
@@ -219,11 +221,21 @@ def run(cfg: DictConfig) -> None:
             _save_metrics(trainer, "test", test_metrics)
         return
 
-    eval_metrics = trainer.evaluate(
-        eval_dataset=dataset[str(cfg.split)],
-        metric_key_prefix=str(cfg.split),
-    )
-    _save_metrics(trainer, str(cfg.split), eval_metrics)
+    # WandbCallback only calls wandb.init() from on_train_begin, so mode=eval
+    # (which never calls trainer.train()) would otherwise never get a W&B run
+    # and the per-province prediction table would silently never be logged.
+    wandb_run = None
+    if reports_to_wandb(trainer_config):
+        wandb_run = wandb.init(name=trainer_config.run_name)
+    try:
+        eval_metrics = trainer.evaluate(
+            eval_dataset=dataset[str(cfg.split)],
+            metric_key_prefix=str(cfg.split),
+        )
+        _save_metrics(trainer, str(cfg.split), eval_metrics)
+    finally:
+        if wandb_run is not None:
+            wandb_run.finish()
 
 
 @hydra.main(version_base="1.3", config_path="configs", config_name="config")

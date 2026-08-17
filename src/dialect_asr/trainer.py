@@ -91,6 +91,11 @@ def _reports_to_wandb(report_to: str | list[str]) -> bool:
     return "wandb" in report_to or "all" in report_to
 
 
+def reports_to_wandb(config: TrainerConfig) -> bool:
+    """Whether ``config`` is configured to report metrics to W&B."""
+    return _reports_to_wandb(config.report_to)
+
+
 def configure_wandb_environment(config: TrainerConfig) -> None:
     """Configure the environment consumed by Transformers' WandbCallback."""
     if not _reports_to_wandb(config.report_to):
