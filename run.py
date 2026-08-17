@@ -186,6 +186,8 @@ def run(cfg: DictConfig) -> None:
     compute_metrics = build_compute_metrics(
         processor,
         dataset[metric_split]["region"],
+        dataset[metric_split]["province_name"],
+        log_wandb_table=cfg.mode == "eval",
     )
     trainer = create_trainer(
         model=model,
@@ -209,6 +211,7 @@ def run(cfg: DictConfig) -> None:
 
         if cfg.evaluate_after_train:
             compute_metrics.set_regions(dataset["test"]["region"])
+            compute_metrics.set_provinces(dataset["test"]["province_name"])
             test_metrics = trainer.evaluate(
                 eval_dataset=dataset["test"],
                 metric_key_prefix="test",
