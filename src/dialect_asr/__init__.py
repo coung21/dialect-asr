@@ -30,6 +30,7 @@ from .trainer import (
     build_training_arguments,
     configure_wandb_environment,
     create_trainer,
+    reports_to_wandb,
 )
 
 __all__ = [
@@ -56,4 +57,5 @@ __all__ = [
     "build_training_arguments",
     "configure_wandb_environment",
     "create_trainer",
+    "reports_to_wandb",
 ]
