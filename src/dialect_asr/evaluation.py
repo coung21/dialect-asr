@@ -12,6 +12,7 @@ from jiwer import cer, wer
 from transformers import EvalPrediction
 import wandb
 
+from dialect_asr.reproducibility import DEFAULT_SEED
 from dialect_asr.text import normalize_vietnamese_text
 
 
@@ -99,6 +100,7 @@ class Seq2SeqMetrics:
         regions: Sequence[str],
         provinces: Sequence[str] | None = None,
         log_wandb_table: bool = False,
+        sample_seed: int = DEFAULT_SEED,
     ) -> None:
         self.processor = processor
         self.set_regions(regions)
@@ -108,9 +110,10 @@ class Seq2SeqMetrics:
         # Only mode=eval logs the per-province sample table; per-epoch
         # validation evaluation during training stays off by default.
         self.log_wandb_table = log_wandb_table
-        # Independent RNG: sampled purely for W&B logging, so it must not
-        # perturb the seeded RNGs used for training/eval determinism.
-        self._rng = random.Random()
+        # Seeded independently from the global training RNGs so it never
+        # perturbs training/eval determinism, but fixed so the same province
+        # always yields the same logged sample across separate eval runs.
+        self._rng = random.Random(sample_seed)
 
     def set_regions(self, regions: Sequence[str]) -> None:
         """Switch region metadata before evaluating a different dataset split."""
@@ -190,6 +193,9 @@ def build_compute_metrics(
     regions: Sequence[str],
     provinces: Sequence[str] | None = None,
     log_wandb_table: bool = False,
+    sample_seed: int = DEFAULT_SEED,
 ) -> Seq2SeqMetrics:
     """Build the metric callable passed to ``create_trainer``."""
-    return Seq2SeqMetrics(processor, regions, provinces, log_wandb_table)
+    return Seq2SeqMetrics(
+        processor, regions, provinces, log_wandb_table, sample_seed
+    )

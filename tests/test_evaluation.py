@@ -179,6 +179,43 @@ def test_wandb_table_logs_one_random_sample_per_province(
     assert rows["Hanoi"] in {("xin chào", "xin chào"), ("hà nội", "hà nội hai")}
 
 
+def test_wandb_table_sample_is_deterministic_across_instances(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same seed -> same logged sample per province, run after run."""
+
+    def build_and_capture() -> dict:
+        processor = FakeProcessor(
+            decoded_batches=[
+                ["xin chào", "sài", "hà nội hai", "cần thơ a"],
+                ["xin chào", "sài gòn", "hà nội", "cần thơ b"],
+            ]
+        )
+        metric = Seq2SeqMetrics(
+            processor,
+            regions=["North", "South", "North", "South"],
+            provinces=["Hanoi", "Saigon", "Hanoi", "Can Tho"],
+            log_wandb_table=True,
+            sample_seed=123,
+        )
+        logged = {}
+        monkeypatch.setattr(wandb, "run", object())
+        monkeypatch.setattr(wandb, "log", lambda payload: logged.update(payload))
+        metric(
+            EvalPrediction(
+                predictions=np.array([[1, 0], [2, 0], [3, 0], [4, 0]]),
+                label_ids=np.array([[1, -100], [2, -100], [3, -100], [4, -100]]),
+            )
+        )
+        table = logged["eval/predictions_by_province"]
+        return {row[0]: tuple(row[1:]) for row in table.data}
+
+    first_run = build_and_capture()
+    second_run = build_and_capture()
+
+    assert first_run == second_run
+
+
 def test_metric_rejects_province_length_mismatch() -> None:
     processor = FakeProcessor(decoded_batches=[["a"], ["a"]])
     metric = Seq2SeqMetrics(
