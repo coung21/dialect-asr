@@ -190,6 +190,7 @@ def run(cfg: DictConfig) -> None:
         dataset[metric_split]["region"],
         dataset[metric_split]["province_name"],
         log_wandb_table=cfg.mode == "eval",
+        sample_seed=trainer_config.seed,
     )
     trainer = create_trainer(
         model=model,
