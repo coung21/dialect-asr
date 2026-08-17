@@ -1,5 +1,5 @@
 architecture: baseline
 pretrained_model_name: vinai/PhoWhisper-base
-freeze_encoder: true
+freeze_encoder: false
 gradient_checkpointing: false
 local_files_only: false

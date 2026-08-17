@@ -2,7 +2,7 @@
 output_dir: outputs/phowhisper-baseline
 
 num_train_epochs: 15
-learning_rate: 1.0e-4
+learning_rate: 1.0e-5
 optimizer: adamw_torch
 weight_decay: 0.005
 warmup_ratio: 0.1
