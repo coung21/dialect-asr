@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Any
 from datasets import Audio, load_dataset
@@ -11,6 +12,17 @@ from datasets import Audio, load_dataset
 import torch
 
 from dialect_asr.text import normalize_vietnamese_text
+
+
+LOGGER = logging.getLogger(__name__)
+
+# Whisper's decoder has a fixed 448-position embedding table
+# (``config.max_target_positions``); any label longer than this crashes
+# ``forward`` with "Labels' sequence length ... cannot exceed the maximum
+# allowed length". A handful of ViMD transcripts exceed it, so they are
+# dropped rather than truncated (truncation would train the model to emit
+# mid-sentence cutoffs).
+MAX_LABEL_TOKENS = 448
 
 
 VIMD_COLUMNS = {
@@ -117,12 +129,28 @@ def prepare_dataset(
             text_column,
         )
 
-    return dataset.map(
+    prepared = dataset.map(
         preprocess,
         remove_columns=[audio_column],
         num_proc=num_proc,
         desc="Preprocessing ViMD",
     )
+    filtered = prepared.filter(
+        lambda example: len(example["labels"]) <= MAX_LABEL_TOKENS,
+        num_proc=num_proc,
+        desc="Dropping transcripts longer than Whisper's decoder limit",
+    )
+    for split_name in filtered:
+        dropped = len(prepared[split_name]) - len(filtered[split_name])
+        if dropped:
+            LOGGER.warning(
+                "%s: bỏ %d/%d mẫu có transcript > %d token (giới hạn decoder Whisper)",
+                split_name,
+                dropped,
+                len(prepared[split_name]),
+                MAX_LABEL_TOKENS,
+            )
+    return filtered
 
 
 @dataclass(slots=True)

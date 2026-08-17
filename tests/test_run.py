@@ -38,7 +38,7 @@ def test_hydra_config_composes_expected_defaults() -> None:
     assert cfg.data.data_dir == "data/ViMD_Dataset/data"
     assert cfg.model.pretrained_model_name == "vinai/PhoWhisper-base"
     assert cfg.model.architecture == "baseline"
-    assert cfg.model.freeze_encoder is True
+    assert cfg.model.freeze_encoder is False
     assert cfg.trainer.num_train_epochs == 15
     assert cfg.trainer.global_train_batch_size == 8
     assert cfg.trainer.group_by_length is True

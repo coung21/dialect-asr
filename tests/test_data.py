@@ -1,12 +1,15 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+from datasets import Dataset, DatasetDict
 import pytest
 import torch
 
 from dialect_asr.data import (
     DataCollatorSpeechSeq2SeqWithPadding,
+    MAX_LABEL_TOKENS,
     _split_files,
+    prepare_dataset,
     prepare_example,
 )
 
@@ -79,6 +82,36 @@ def test_prepare_example_uses_vimd_audio_and_text() -> None:
     assert len(prepared["labels"]) == len("xin chào") + 1
     assert processor.text_calls == ["xin chào"]
     assert processor.audio_calls == [([0.1, -0.2, 0.3], 16_000)]
+
+
+def test_prepare_dataset_drops_transcripts_longer_than_whisper_decoder_limit() -> None:
+    # FakeProcessor tokenizes text as one token per character plus a leading
+    # bos, so a MAX_LABEL_TOKENS-character transcript exceeds the limit.
+    short_text = "xin chào"
+    long_text = "a" * MAX_LABEL_TOKENS
+    dataset = DatasetDict(
+        {
+            "train": Dataset.from_list(
+                [
+                    {
+                        "audio": {"array": [0.1], "sampling_rate": 16_000},
+                        "text": short_text,
+                        "region": "North",
+                    },
+                    {
+                        "audio": {"array": [0.2], "sampling_rate": 16_000},
+                        "text": long_text,
+                        "region": "North",
+                    },
+                ]
+            )
+        }
+    )
+
+    prepared = prepare_dataset(dataset, FakeProcessor())
+
+    assert len(prepared["train"]) == 1
+    assert len(prepared["train"][0]["labels"]) == len(short_text) + 1
 
 
 def test_collator_stacks_features_and_replaces_label_padding_with_minus_100() -> None:
