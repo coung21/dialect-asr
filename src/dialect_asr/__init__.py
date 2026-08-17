@@ -13,6 +13,7 @@ from .model import (
     BaselinePhoWhisperASR,
     load_vietnamese_processor,
 )
+from .modules import ECAPA_TDNN_DID
 from .reproducibility import (
     DEFAULT_SEED,
     seed_data_worker,
@@ -45,6 +46,7 @@ __all__ = [
     "DEFAULT_PRETRAINED_MODEL",
     "BaselinePhoWhisperASR",
     "load_vietnamese_processor",
+    "ECAPA_TDNN_DID",
     "DEFAULT_SEED",
     "seed_data_worker",
     "seed_everything",
