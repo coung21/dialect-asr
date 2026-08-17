@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 import math
+import random
 from typing import Any
 
 import numpy as np
 from jiwer import cer, wer
 from transformers import EvalPrediction
+import wandb
 
 from dialect_asr.text import normalize_vietnamese_text
 
@@ -70,16 +72,53 @@ def compute_asr_metrics(
     return metrics
 
 
+def _sample_one_per_province_table(
+    predictions: Sequence[str],
+    references: Sequence[str],
+    provinces: Sequence[str],
+    rng: random.Random,
+) -> "wandb.Table":
+    """Build a W&B table with one random (reference, predicted) pair per province."""
+    indices_by_province: dict[str, list[int]] = {}
+    for index, province in enumerate(provinces):
+        indices_by_province.setdefault(province, []).append(index)
+
+    table = wandb.Table(columns=["province", "reference", "predicted"])
+    for province in sorted(indices_by_province):
+        index = rng.choice(indices_by_province[province])
+        table.add_data(province, references[index], predictions[index])
+    return table
+
+
 class Seq2SeqMetrics:
     """Callable metric adapter for Hugging Face ``Seq2SeqTrainer`` predictions."""
 
-    def __init__(self, processor: Any, regions: Sequence[str]) -> None:
+    def __init__(
+        self,
+        processor: Any,
+        regions: Sequence[str],
+        provinces: Sequence[str] | None = None,
+        log_wandb_table: bool = False,
+    ) -> None:
         self.processor = processor
         self.set_regions(regions)
+        self.provinces: tuple[str, ...] | None = None
+        if provinces is not None:
+            self.set_provinces(provinces)
+        # Only mode=eval logs the per-province sample table; per-epoch
+        # validation evaluation during training stays off by default.
+        self.log_wandb_table = log_wandb_table
+        # Independent RNG: sampled purely for W&B logging, so it must not
+        # perturb the seeded RNGs used for training/eval determinism.
+        self._rng = random.Random()
 
     def set_regions(self, regions: Sequence[str]) -> None:
         """Switch region metadata before evaluating a different dataset split."""
         self.regions = tuple(regions)
+
+    def set_provinces(self, provinces: Sequence[str]) -> None:
+        """Switch province metadata before evaluating a different dataset split."""
+        self.provinces = tuple(provinces)
 
     def __call__(self, prediction: EvalPrediction) -> dict[str, float]:
         # With predict_with_generate=True these are already generated token IDs,
@@ -120,6 +159,25 @@ class Seq2SeqMetrics:
                 "Số prediction không khớp region metadata; "
                 f"nhận {len(decoded_predictions)} và {len(self.regions)}"
             )
+
+        if self.provinces is not None:
+            if len(decoded_predictions) != len(self.provinces):
+                raise ValueError(
+                    "Số prediction không khớp province metadata; "
+                    f"nhận {len(decoded_predictions)} và {len(self.provinces)}"
+                )
+            # Only log when a W&B run is actually active (e.g. wandb_mode=disabled
+            # or offline evaluation without wandb.init leaves wandb.run as None)
+            # and this is an explicit mode=eval run, not per-epoch validation.
+            if self.log_wandb_table and wandb.run is not None:
+                table = _sample_one_per_province_table(
+                    decoded_predictions,
+                    decoded_references,
+                    self.provinces,
+                    self._rng,
+                )
+                wandb.log({"eval/predictions_by_province": table})
+
         return compute_asr_metrics(
             decoded_predictions,
             decoded_references,
@@ -127,6 +185,11 @@ class Seq2SeqMetrics:
         )
 
 
-def build_compute_metrics(processor: Any, regions: Sequence[str]) -> Seq2SeqMetrics:
+def build_compute_metrics(
+    processor: Any,
+    regions: Sequence[str],
+    provinces: Sequence[str] | None = None,
+    log_wandb_table: bool = False,
+) -> Seq2SeqMetrics:
     """Build the metric callable passed to ``create_trainer``."""
-    return Seq2SeqMetrics(processor, regions)
+    return Seq2SeqMetrics(processor, regions, provinces, log_wandb_table)
