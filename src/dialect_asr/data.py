@@ -24,6 +24,23 @@ VIMD_COLUMNS = {
     "gender",
 }
 
+# Same North/Central/South ordering as evaluation.REGION_TO_METRIC so class
+# IDs line up with the display order used for regional ASR metrics.
+REGION_TO_LABEL = {"north": 0, "central": 1, "south": 2}
+LABEL_TO_REGION = {label: region for region, label in REGION_TO_LABEL.items()}
+
+
+def region_to_label(region: str) -> int:
+    """Map a ViMD region name to the class ID used by the DID branch."""
+    normalized_region = str(region).strip().lower()
+    try:
+        return REGION_TO_LABEL[normalized_region]
+    except KeyError as exc:
+        expected = ", ".join(REGION_TO_LABEL)
+        raise ValueError(
+            f"Region không hợp lệ {region!r}; cần một trong: {expected}"
+        ) from exc
+
 
 def _split_files(data_dir: str | Path) -> dict[str, str]:
     data_dir = Path(data_dir)
@@ -125,6 +142,55 @@ def prepare_dataset(
     )
 
 
+def prepare_did_example(
+    example: dict[str, Any],
+    processor: Any,
+    audio_column: str = "audio",
+    region_column: str = "region",
+) -> dict[str, Any]:
+    """Convert one ViMD record into log-mel features and a region class ID.
+
+    Unlike :func:`prepare_example`, this skips text tokenization entirely
+    since the DID branch never predicts a transcript.
+    """
+    audio_array, sampling_rate = _decoded_audio(example[audio_column])
+    # audio_array: [T_audio] -> feature_extractor output: [1, num_mel_bins, T_frame].
+    feature_output = processor.feature_extractor(
+        audio_array,
+        sampling_rate=sampling_rate,
+        return_attention_mask=True,
+    )
+
+    return {
+        # [1, num_mel_bins, T_frame] -> [num_mel_bins, T_frame]; collator
+        # restores the batch dimension.
+        "input_features": feature_output.input_features[0],
+        # [1, T_frame] -> [T_frame], one valid-frame flag per mel column.
+        "attention_mask": feature_output.attention_mask[0],
+        "region_label": region_to_label(example[region_column]),  # Scalar class ID [].
+    }
+
+
+def prepare_did_dataset(
+    dataset: Any,
+    processor: Any,
+    audio_column: str = "audio",
+    region_column: str = "region",
+    num_proc: int | None = None,
+) -> Any:
+    """Preprocess every split into log-mel features and region class IDs."""
+
+    def preprocess(example: dict[str, Any]) -> dict[str, Any]:
+        return prepare_did_example(example, processor, audio_column, region_column)
+
+    return dataset.map(
+        preprocess,
+        remove_columns=[audio_column],
+        num_proc=num_proc,
+        desc="Preprocessing ViMD (DID)",
+    )
+
+
 @dataclass(slots=True)
 class DataCollatorSpeechSeq2SeqWithPadding:
     """Stack fixed-length log-mel features and dynamically pad text labels."""
@@ -169,5 +235,36 @@ class DataCollatorSpeechSeq2SeqWithPadding:
         if bos_token_id is not None and (labels[:, 0] == bos_token_id).all():
             labels = labels[:, 1:]
         batch["labels"] = labels
+
+        return batch
+
+
+@dataclass(slots=True)
+class DataCollatorDIDWithPadding:
+    """Stack fixed-length log-mel features and region labels for DID training."""
+
+    feature_extractor: Any
+
+    def __call__(self, examples: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
+        if not examples:
+            raise ValueError("Không thể collate một batch rỗng")
+
+        audio_features = [
+            # Each item is already [num_mel_bins, T_frame]; the feature extractor
+            # pads/truncates every example to the same fixed length.
+            {
+                "input_features": example["input_features"],
+                "attention_mask": example["attention_mask"],
+            }
+            for example in examples
+        ]
+        # [num_mel_bins, T_frame] -> input_features [B, num_mel_bins, T_frame];
+        # [T_frame] -> attention_mask [B, T_frame].
+        batch = self.feature_extractor.pad(audio_features, return_tensors="pt")
+
+        # Scalar region IDs -> region_labels [B].
+        batch["region_labels"] = torch.tensor(
+            [example["region_label"] for example in examples], dtype=torch.long
+        )
 
         return batch

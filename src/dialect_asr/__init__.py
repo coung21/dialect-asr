@@ -2,10 +2,14 @@
 
 from .base_model import AbstractPhoWhisperASR
 from .data import (
+    DataCollatorDIDWithPadding,
     DataCollatorSpeechSeq2SeqWithPadding,
     load_vimd,
     prepare_dataset,
+    prepare_did_dataset,
+    prepare_did_example,
     prepare_example,
+    region_to_label,
 )
 from .evaluation import Seq2SeqMetrics, build_compute_metrics, compute_asr_metrics
 from .model import (
@@ -36,10 +40,14 @@ from .trainer import (
 
 __all__ = [
     "AbstractPhoWhisperASR",
+    "DataCollatorDIDWithPadding",
     "DataCollatorSpeechSeq2SeqWithPadding",
     "load_vimd",
     "prepare_dataset",
+    "prepare_did_dataset",
+    "prepare_did_example",
     "prepare_example",
+    "region_to_label",
     "Seq2SeqMetrics",
     "build_compute_metrics",
     "compute_asr_metrics",

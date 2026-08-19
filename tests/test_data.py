@@ -5,9 +5,12 @@ import pytest
 import torch
 
 from dialect_asr.data import (
+    DataCollatorDIDWithPadding,
     DataCollatorSpeechSeq2SeqWithPadding,
     _split_files,
+    prepare_did_example,
     prepare_example,
+    region_to_label,
 )
 
 
@@ -115,6 +118,89 @@ def test_collator_keeps_labels_when_no_shared_leading_bos_token() -> None:
 def test_collator_rejects_empty_batch() -> None:
     with pytest.raises(ValueError, match="batch rỗng"):
         DataCollatorSpeechSeq2SeqWithPadding(FakeProcessor())([])
+
+
+class FakeFeatureExtractor:
+    """Minimal feature-extractor double for the DID (no-tokenizer) code path."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, int]] = []
+
+    def __call__(self, audio, *, sampling_rate=None, return_attention_mask=None):
+        del return_attention_mask
+        self.calls.append((audio, sampling_rate))
+        # [T_audio] -> [1, num_mel_bins=1, T_audio]; one "mel bin" is enough to
+        # exercise batch/feature-dimension bookkeeping in tests.
+        return SimpleNamespace(
+            input_features=[[[float(value) for value in audio]]],
+            attention_mask=[[1] * len(audio)],
+        )
+
+    @staticmethod
+    def pad(features, *, return_tensors=None):
+        del return_tensors
+        max_length = max(len(item["input_features"][0]) for item in features)
+        padded_features, padded_masks = [], []
+        for item in features:
+            row = list(item["input_features"][0])
+            mask = list(item["attention_mask"])
+            pad_amount = max_length - len(row)
+            padded_features.append([row + [0.0] * pad_amount])
+            padded_masks.append(mask + [0] * pad_amount)
+        return {
+            "input_features": torch.tensor(padded_features, dtype=torch.float32),
+            "attention_mask": torch.tensor(padded_masks, dtype=torch.long),
+        }
+
+
+@pytest.mark.parametrize(
+    ("region", "expected_label"),
+    [("North", 0), ("  central  ", 1), ("SOUTH", 2)],
+)
+def test_region_to_label_is_case_and_whitespace_insensitive(region, expected_label) -> None:
+    assert region_to_label(region) == expected_label
+
+
+def test_region_to_label_rejects_unknown_region() -> None:
+    with pytest.raises(ValueError, match="Region không hợp lệ"):
+        region_to_label("Northeast")
+
+
+def test_prepare_did_example_uses_vimd_audio_and_region() -> None:
+    feature_extractor = FakeFeatureExtractor()
+    processor = SimpleNamespace(feature_extractor=feature_extractor)
+    example = {
+        "audio": {"array": [0.1, -0.2, 0.3], "sampling_rate": 16_000},
+        "text": "should be ignored",
+        "region": "Central",
+    }
+
+    prepared = prepare_did_example(example, processor)
+
+    assert prepared["input_features"] == [[pytest.approx(0.1), pytest.approx(-0.2), pytest.approx(0.3)]]
+    assert prepared["attention_mask"] == [1, 1, 1]
+    assert prepared["region_label"] == 1
+    assert feature_extractor.calls == [([0.1, -0.2, 0.3], 16_000)]
+
+
+def test_did_collator_stacks_features_masks_and_region_labels() -> None:
+    collator = DataCollatorDIDWithPadding(FakeFeatureExtractor())
+
+    batch = collator(
+        [
+            {"input_features": [[0.1, 0.2, 0.3]], "attention_mask": [1, 1, 1], "region_label": 0},
+            {"input_features": [[0.4, 0.0]], "attention_mask": [1, 1], "region_label": 2},
+        ]
+    )
+
+    assert batch["input_features"].shape == (2, 1, 3)
+    assert batch["attention_mask"].tolist() == [[1, 1, 1], [1, 1, 0]]
+    assert batch["region_labels"].tolist() == [0, 2]
+
+
+def test_did_collator_rejects_empty_batch() -> None:
+    with pytest.raises(ValueError, match="batch rỗng"):
+        DataCollatorDIDWithPadding(FakeFeatureExtractor())([])
 
 
 def test_split_files_maps_vimd_names(tmp_path: Path) -> None:
