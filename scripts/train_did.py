@@ -246,7 +246,7 @@ def main(argv: list[str] | None = None) -> None:
         mode=args.wandb_mode,
         config=vars(args),
     )
-    best_checkpoint_path = output_dir / "best_model.pt"
+    final_checkpoint_path = output_dir / "final_model.pt"
     best_val_f1_macro = -1.0
 
     try:
@@ -279,12 +279,13 @@ def main(argv: list[str] | None = None) -> None:
                 }
             )
 
-            if val_metrics["f1_macro"] > best_val_f1_macro:
-                best_val_f1_macro = val_metrics["f1_macro"]
-                torch.save(model.state_dict(), best_checkpoint_path)
-                LOGGER.info("Saved new best checkpoint (val F1-macro=%.4f)", best_val_f1_macro)
+            # Tracked only for the W&B summary; the checkpoint itself is saved
+            # once at the very end, from whatever epoch training finishes on.
+            best_val_f1_macro = max(best_val_f1_macro, val_metrics["f1_macro"])
 
-        model.load_state_dict(torch.load(best_checkpoint_path, map_location=device))
+        torch.save(model.state_dict(), final_checkpoint_path)
+        LOGGER.info("Saved final checkpoint to %s", final_checkpoint_path)
+
         test_metrics = run_epoch(model, dataloaders["test"], device, criterion)
         LOGGER.info(
             "Test — loss %.4f, accuracy %.4f, F1-macro %.4f",
