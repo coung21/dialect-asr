@@ -106,8 +106,11 @@ def prepare_example(
     # audio_array: [T_audio] -> processor batch output: [1, num_mel_bins, T_frame].
     audio_output = processor(audio_array, sampling_rate=sampling_rate)
     normalized_text = normalize_vietnamese_text(str(example[text_column]))
-    # One normalized transcript -> token IDs with shape [T_text].
-    text_output = processor(text=normalized_text)
+    # One normalized transcript -> token IDs with shape [T_text]. Truncate to
+    # the tokenizer's model_max_length (448, matching Whisper's
+    # max_target_positions); a handful of ViMD transcripts tokenize past that
+    # and would otherwise crash the decoder at train time.
+    text_output = processor(text=normalized_text, truncation=True)
 
     return {
         # [1, num_mel_bins, T_frame] -> [num_mel_bins, T_frame]; collator restores
@@ -217,8 +220,11 @@ def prepare_combined_example(
         return_attention_mask=True,
     )
     normalized_text = normalize_vietnamese_text(str(example[text_column]))
-    # One normalized transcript -> token IDs with shape [T_text].
-    text_output = processor(text=normalized_text)
+    # One normalized transcript -> token IDs with shape [T_text]. Truncate to
+    # the tokenizer's model_max_length (448, matching Whisper's
+    # max_target_positions); a handful of ViMD transcripts tokenize past that
+    # and would otherwise crash the decoder at train time.
+    text_output = processor(text=normalized_text, truncation=True)
 
     return {
         # [1, num_mel_bins, T_frame] -> [num_mel_bins, T_frame]; collator restores

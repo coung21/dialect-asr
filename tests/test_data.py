@@ -23,7 +23,7 @@ class FakeProcessor:
         self.feature_extractor = SimpleNamespace(pad=self._pad_features)
         self.tokenizer = SimpleNamespace(pad=self._pad_labels, bos_token_id=1)
 
-    def __call__(self, audio=None, *, sampling_rate=None, text=None):
+    def __call__(self, audio=None, *, sampling_rate=None, text=None, truncation=None):
         if text is not None:
             self.text_calls.append(text)
             # Every example is prefixed with the shared bos/decoder-start token.
