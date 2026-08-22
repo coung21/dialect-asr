@@ -1,5 +1,6 @@
 """Dialect-aware Vietnamese speech recognition."""
 
+from .adaln_model import PhoWhisperAdaLNASR, inject_adaln, resolve_did_checkpoint_path
 from .base_model import AbstractPhoWhisperASR
 from .data import (
     DataCollatorDIDWithPadding,
@@ -17,7 +18,7 @@ from .model import (
     BaselinePhoWhisperASR,
     load_vietnamese_processor,
 )
-from .modules import ECAPA_TDNN_DID
+from .modules import AdaLN, DialectConditioner, ECAPA_TDNN_DID
 from .reproducibility import (
     DEFAULT_SEED,
     seed_data_worker,
@@ -40,6 +41,11 @@ from .trainer import (
 
 __all__ = [
     "AbstractPhoWhisperASR",
+    "AdaLN",
+    "DialectConditioner",
+    "PhoWhisperAdaLNASR",
+    "inject_adaln",
+    "resolve_did_checkpoint_path",
     "DataCollatorDIDWithPadding",
     "DataCollatorSpeechSeq2SeqWithPadding",
     "load_vimd",

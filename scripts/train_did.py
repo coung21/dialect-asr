@@ -286,6 +286,28 @@ def main(argv: list[str] | None = None) -> None:
         torch.save(model.state_dict(), final_checkpoint_path)
         LOGGER.info("Saved final checkpoint to %s", final_checkpoint_path)
 
+        # Publish the checkpoint as a W&B model artifact so downstream runs
+        # (e.g. PhoWhisperAdaLNASR.from_vietnamese_pretrained) can reference it
+        # as "wandb-artifact:<entity>/<project>/<name>:<version>" instead of a
+        # local path. Metadata records the shape-defining hyperparameters so a
+        # mismatched `did_kwargs` at load time fails fast instead of silently.
+        artifact = wandb.Artifact(
+            name=f"{args.wandb_run_name}-did-model",
+            type="model",
+            metadata={
+                "hidden_size": processor.feature_extractor.feature_size,
+                "num_regions": len(REGION_NAMES),
+                "channels": args.channels,
+                "embedding_size": args.embedding_size,
+                "res2net_scale": args.res2net_scale,
+                "se_bottleneck_channels": args.se_bottleneck_channels,
+                "attention_channels": args.attention_channels,
+                "dropout": args.dropout,
+            },
+        )
+        artifact.add_file(str(final_checkpoint_path))
+        run.log_artifact(artifact)
+
         test_metrics = run_epoch(model, dataloaders["test"], device, criterion)
         LOGGER.info(
             "Test — loss %.4f, accuracy %.4f, F1-macro %.4f",

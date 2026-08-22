@@ -1,0 +1,11 @@
+# @package _global_
+
+defaults:
+  - override /model: phowhisper_adaln
+  - _self_
+
+trainer:
+  output_dir: outputs/adaln
+  run_name: adaln
+  wandb_group: adaln
+  wandb_tags: [vimd, phowhisper, adaln]

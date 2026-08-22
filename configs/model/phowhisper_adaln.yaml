@@ -1,0 +1,22 @@
+architecture: adaln
+pretrained_model_name: vinai/PhoWhisper-base
+freeze_encoder: true
+gradient_checkpointing: false
+local_files_only: false
+
+# Architecture-specific extras, forwarded to PhoWhisperAdaLNASR's
+# from_vietnamese_pretrained()/from_pretrained() (see registry.py). Either a
+# local path or "wandb-artifact:<entity>/<project>/<name>:<version>" (as
+# logged by scripts/train_did.py). Points at the artifact produced by
+# `train_did.py --wandb-project dialect-asr --wandb-run-name did-ecapa-tdnn`;
+# update the entity/run-name below if you train the DID branch under a
+# different W&B run.
+did_checkpoint_path: "wandb-artifact:dchunter7771414-vku-udn-vn/dialect-asr/did-ecapa-tdnn-did-model:latest"
+did_kwargs:
+  num_regions: 3
+  channels: 512
+  embedding_size: 192
+  res2net_scale: 8
+  se_bottleneck_channels: 128
+  attention_channels: 128
+  dropout: 0.1
