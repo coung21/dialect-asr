@@ -34,7 +34,7 @@ from dialect_asr import (
     ECAPA_TDNN_DID,
     load_vietnamese_processor,
     load_vimd,
-    prepare_did_dataset,
+    prepare_combined_dataset,
     seed_everything,
 )
 
@@ -110,7 +110,10 @@ def build_dataloaders(
             split_dataset = split_dataset.select(range(min(limit, len(split_dataset))))
         selected_splits[split] = split_dataset
 
-    dataset = prepare_did_dataset(
+    # Uses the same map function/fingerprint as run.py's ASR preprocessing so
+    # training DID then ASR (or vice versa) over the same selected splits
+    # reuses one cached log-mel dataset instead of writing it twice.
+    dataset = prepare_combined_dataset(
         DatasetDict(selected_splits), processor, num_proc=args.num_proc
     )
     collator = DataCollatorDIDWithPadding(processor.feature_extractor)

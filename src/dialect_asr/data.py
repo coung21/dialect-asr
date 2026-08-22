@@ -191,6 +191,73 @@ def prepare_did_dataset(
     )
 
 
+def prepare_combined_example(
+    example: dict[str, Any],
+    processor: Any,
+    audio_column: str = "audio",
+    text_column: str = "text",
+    region_column: str = "region",
+) -> dict[str, Any]:
+    """Convert one ViMD record into everything both the ASR and DID trainers need.
+
+    `prepare_example`/`prepare_did_example` both mel-extract the *same* audio
+    but under different `dataset.map()` fingerprints, so training DID then ASR
+    (or vice versa) writes two full log-mel caches to disk for the same
+    utterances. This does the mel extraction once; ASR training reads
+    `input_features`/`labels`, DID training reads
+    `input_features`/`attention_mask`/`region_label`, and as long as both
+    stages call `prepare_combined_dataset` over the same selected splits,
+    `datasets` reuses the one cached result instead of writing a second copy.
+    """
+    audio_array, sampling_rate = _decoded_audio(example[audio_column])
+    # audio_array: [T_audio] -> feature_extractor output: [1, num_mel_bins, T_frame].
+    feature_output = processor.feature_extractor(
+        audio_array,
+        sampling_rate=sampling_rate,
+        return_attention_mask=True,
+    )
+    normalized_text = normalize_vietnamese_text(str(example[text_column]))
+    # One normalized transcript -> token IDs with shape [T_text].
+    text_output = processor(text=normalized_text)
+
+    return {
+        # [1, num_mel_bins, T_frame] -> [num_mel_bins, T_frame]; collator restores
+        # the batch dimension.
+        "input_features": feature_output.input_features[0],
+        # [1, T_frame] -> [T_frame], one valid-frame flag per mel column.
+        "attention_mask": feature_output.attention_mask[0],
+        "labels": text_output.input_ids,  # [T_text].
+        "region_label": region_to_label(example[region_column]),  # Scalar class ID [].
+    }
+
+
+def prepare_combined_dataset(
+    dataset: Any,
+    processor: Any,
+    audio_column: str = "audio",
+    text_column: str = "text",
+    region_column: str = "region",
+    num_proc: int | None = None,
+) -> Any:
+    """Preprocess every split once into the fields both ASR and DID need.
+
+    See `prepare_combined_example` for why this exists instead of running
+    `prepare_dataset` and `prepare_did_dataset` separately.
+    """
+
+    def preprocess(example: dict[str, Any]) -> dict[str, Any]:
+        return prepare_combined_example(
+            example, processor, audio_column, text_column, region_column
+        )
+
+    return dataset.map(
+        preprocess,
+        remove_columns=[audio_column],
+        num_proc=num_proc,
+        desc="Preprocessing ViMD (ASR+DID)",
+    )
+
+
 @dataclass(slots=True)
 class DataCollatorSpeechSeq2SeqWithPadding:
     """Stack fixed-length log-mel features and dynamically pad text labels."""

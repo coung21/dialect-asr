@@ -22,7 +22,7 @@ from dialect_asr import (
     create_trainer,
     load_vietnamese_processor,
     load_vimd,
-    prepare_dataset,
+    prepare_combined_dataset,
     reports_to_wandb,
     seed_everything,
 )
@@ -175,7 +175,10 @@ def run(cfg: DictConfig) -> None:
         sampling_rate=int(cfg.data.sampling_rate),
     )
     selected_dataset = _selected_raw_splits(cfg, raw_dataset)
-    dataset = prepare_dataset(
+    # Uses the same map function/fingerprint as train_did.py's preprocessing
+    # so training DID then ASR (or vice versa) over the same selected splits
+    # reuses one cached log-mel dataset instead of writing it twice.
+    dataset = prepare_combined_dataset(
         selected_dataset,
         processor,
         audio_column=str(cfg.data.audio_column),
