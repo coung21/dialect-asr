@@ -223,11 +223,23 @@ class PhoWhisperAdaLNASR(AbstractPhoWhisperASR):
             _, embedding = self.did_model(hidden_states)  # [B, did_embedding_size].
         return self.conditioner(embedding)  # [B, d_model].
 
-    def forward(self, input_features: Tensor | None = None, **kwargs: Any) -> Any:
+    def forward(
+        self,
+        input_features: Tensor | None = None,
+        labels: Tensor | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        # `labels` must stay a named parameter (not folded into **kwargs):
+        # generate()'s _validate_model_kwargs introspects this signature via
+        # inspect.signature and only recognizes literal parameter names, so a
+        # swallowed **kwargs makes it reject the `labels` Seq2SeqTrainer still
+        # passes into generate() at eval time (predict_with_generate).
         cond = kwargs.pop("cond", None)
         if cond is None and input_features is not None:
             cond = self._did_condition(input_features)
-        return super().forward(input_features=input_features, cond=cond, **kwargs)
+        return super().forward(
+            input_features=input_features, labels=labels, cond=cond, **kwargs
+        )
 
     def generate(self, *args: Any, **kwargs: Any) -> Any:
         input_features = kwargs.get("input_features")
